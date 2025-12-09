@@ -32,37 +32,55 @@ end
 -- Parse hex colors
 function M.parse_hex(line)
 	local results = {}
+	local idx = 1
 
-	-- Match #rrggbb and #rrggbbaa (non-overlapping)
-	for s, e, hex in line:gmatch("()#(%x%x%x%x%x%x%x?%x?)()") do
-		if #hex == 6 or #hex == 8 then
+	while idx <= #line do
+		local start_pos, end_pos, hex = line:find("(#%x%x%x%x%x%x%x?%x?)", idx)
+		if not start_pos then
+			break
+		end
+
+		local len = end_pos - start_pos + 1
+		if len == 7 or len == 9 then
 			table.insert(results, {
-				color = "#" .. hex,
-				start = s - 1,
-				finish = e - 1,
+				color = hex,
+				start = start_pos - 1,
+				finish = end_pos,
 				format = "hex",
 			})
+			idx = end_pos + 1
+		else
+			idx = start_pos + 1
 		end
 	end
 
-	-- Match #rgb only if not part of longer match
+	-- Short hex #rgb (only if enabled)
 	if config.options.enable_short_hex then
-		for s, e, hex in line:gmatch("()#(%x%x%x)([^%x])") do
-			local is_inside_long = false
+		idx = 1
+		while idx <= #line do
+			local start_pos, end_pos, hex = line:find("(#%x%x%x)(%W)", idx)
+			if not start_pos then
+				break
+			end
+
+			-- Avoid matching inside longer hex
+			local inside_long = false
 			for _, r in ipairs(results) do
-				if s >= r.start + 1 and s <= r.finish then
-					is_inside_long = true
+				if start_pos >= r.start + 1 and end_pos <= r.finish + 1 then
+					inside_long = true
 					break
 				end
 			end
-			if not is_inside_long then
+
+			if not inside_long then
 				table.insert(results, {
-					color = "#" .. hex,
-					start = s - 1,
-					finish = e - 2, -- exclude the non-hex char
+					color = hex,
+					start = start_pos - 1,
+					finish = end_pos - 1,
 					format = "hex",
 				})
 			end
+			idx = end_pos
 		end
 	end
 
