@@ -26,6 +26,10 @@ function M.parse_line(line)
 		vim.list_extend(all_colors, M.parse_named_colors(line))
 	end
 
+	if config.options.enable_tailwind then
+		vim.list_extend(all_colors, M.parse_tailwind(line))
+	end
+
 	return all_colors
 end
 
@@ -220,6 +224,99 @@ function M.parse_named_colors(line)
 			})
 
 			start_idx = finish + 1
+		end
+	end
+
+	return results
+end
+
+-- Parse Tailwind CSS color classes: bg-red-500, text-blue-400/50, etc.
+function M.parse_tailwind(line)
+	if not config.options.enable_tailwind then
+		return {}
+	end
+
+	local results = {}
+	local patterns = {
+		-- Standard: bg-red-500, text-indigo-600, border-emerald-400
+		"([%w%-]+)%-([%w%-]+)%-([%d]+)",
+		-- With opacity: bg-sky-500/50, text-purple-400/[.2]
+		"([%w%-]+)%-([%w%-]+)%-([%d]+)/[%d%.]+",
+		-- Arbitrary values: bg-[#ff0000], text-[rgb(255,0,0)]
+		"([%w%-]+)%-%[%s*(#[%da-fA-F]+)%s*%]", -- bg-[#rrggbb]
+		"([%w%-]+)%-%[%s*rgb%a*%s*%(%s*%d+%s*,%s*%d+%s*,%s*%d+[^%)]*%)%s*%]", -- rgb/rgba
+		"([%w%-]+)%-%[%s*hsl%a*%s*%(%s*%d+[^%)]*%)%s*%]", -- hsl/hsla
+	}
+
+	-- Tailwind color prefixes that represent visual color (not layout/spacing)
+	local color_prefixes = {
+		"bg%",
+		"text%",
+		"border%",
+		"ring%",
+		"ring%-offset%",
+		"shadow%",
+		"decoration%",
+		"accent%",
+		"caret%",
+		"from%",
+		"via%",
+		"to%",
+		"fill%",
+		"stroke%",
+	}
+
+	for _, prefix in ipairs(color_prefixes) do
+		prefix = prefix:gsub("%%", "") -- remove % used for pattern escaping
+
+		for _, pattern in ipairs(patterns) do
+			local full_pattern = prefix .. "%-" .. pattern
+			local init = 1
+			while true do
+				local s, e, p1, color_name, shade_or_custom = line:find(full_pattern, init)
+				if not s then
+					break
+				end
+
+				local full_match = line:sub(s, e)
+				local hex = nil
+
+				-- Resolve Tailwind color name + shade to hex (e.g., red-500)
+				if color_name and shade_or_custom and not full_match:find("%[") then
+					hex = colors.tailwind_color_to_hex(color_name, shade_or_custom)
+				end
+
+				-- Handle arbitrary values inside [...]
+				if full_match:find("%[") then
+					local arb = full_match:match("%[([^%]]+)%]")
+					if arb then
+						arb = arb:gsub("%s", "")
+						if arb:match("^#") then
+							hex = arb:lower()
+							if #hex == 4 then
+								hex = hex .. hex:sub(2)
+							end -- expand #rgb
+						elseif arb:match("^rgb") or arb:match("^hsl") then
+							-- Extract and parse rgb()/hsl()
+							local r, g, b, a = colors.parse_function_color(arb)
+							if r then
+								hex = colors.rgb_to_hex(r, g, b, a)
+							end
+						end
+					end
+				end
+
+				if hex then
+					table.insert(results, {
+						color = hex,
+						start = s - 1,
+						finish = e,
+						format = "tailwind",
+					})
+				end
+
+				init = e + 1
+			end
 		end
 	end
 

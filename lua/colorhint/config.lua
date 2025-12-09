@@ -19,7 +19,7 @@ M.options = {
 	enable_hsla = true,
 	enable_oklch = true,
 	enable_named_colors = true,
-	enable_tailwind = false,
+	enable_tailwind = true,
 
 	-- File type configuration
 	filetypes = { "*" },
