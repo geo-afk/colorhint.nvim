@@ -50,6 +50,23 @@ function M.render_color(bufnr, ns_id, row, color_info)
 	local col_end = color_info.finish
 	local render_mode = config.options.render
 
+	-- In render_color function, add Tailwind-specific positioning
+	if color_info.format == "tailwind" and render_mode == "virtual" or render_mode == "both" then
+		local symbol = config.options.virtual_symbol or "⬤ "
+		local prefix = config.options.virtual_symbol_prefix or " " -- Space before full class
+		local virt_col = color_info.start -- Start BEFORE the class
+		local virt_text = {
+			{ prefix, "Normal" },
+			{ symbol, hl_groups.virtual },
+			{ config.options.virtual_symbol_suffix or " ", "Normal" },
+		}
+		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, virt_col, {
+			virt_text = virt_text,
+			virt_text_pos = "inline",
+			priority = 101,
+		})
+	end
+
 	-- Background / Foreground highlighting
 	if render_mode == "background" or render_mode == "both" then
 		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {

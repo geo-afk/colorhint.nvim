@@ -1,4 +1,5 @@
 local M = {}
+local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 
 -- Full Tailwind v3+ color palette (you provided it)
@@ -227,7 +228,6 @@ M.TAILWIND_COLORS = {
 	["rose-900"] = "rgb(136 19 55)",
 }
 
--- Common Tailwind prefixes that indicate a color
 local PREFIXES = {
 	"bg%-",
 	"text%-",
@@ -243,43 +243,71 @@ local PREFIXES = {
 	"shadow%-",
 }
 
+-- Improved pattern: Matches full class in common contexts (e.g., class="...", 'bg-red-500', or standalone)
+local CONTEXT_PATTERNS = {
+	-- In double-quoted attributes
+	'class%s*=%s*"([^"]*%s+)?(%w+-%s*'
+		.. table.concat(PREFIXES, "|")
+		.. "([%w-]+))",
+	-- In single-quoted attributes
+	"class%s*=%s*'([^']*%s+)?(%w+-%s*"
+		.. table.concat(PREFIXES, "|")
+		.. "([%w-]+))",
+	-- Standalone or in space-separated lists (word-boundaried)
+	"(%f[%w]"
+		.. table.concat(PREFIXES, "|")
+		.. "([%w-]+)%f[^%w])",
+}
+
 function M.parse_tailwind(line)
 	local results = {}
-	if not require("colorhint.config").options.enable_tailwind then
+	if not config.options.enable_tailwind then
 		return results
 	end
 
-	for _, prefix in ipairs(PREFIXES) do
-		local pattern = "(" .. prefix .. "([%w%-]+)%f[%W])"
-		local start_idx = 1
-
-		while true do
-			local s, e, full_match, color_name = line:find(pattern, start_idx)
-			if not s then
-				break
+	-- Collect all potential full matches
+	local full_matches = {}
+	for _, pattern in ipairs(CONTEXT_PATTERNS) do
+		for _ in line:gmatch(pattern) do
+			-- Extract the full class (prefix + color)
+			local full_class = line:match(pattern)
+			if full_class then
+				table.insert(full_matches, full_class)
 			end
+		end
+	end
 
+	-- Now process each unique full match
+	for _, full_match in ipairs(full_matches) do
+		-- Extract color_name (e.g., "red-500" from "bg-red-500")
+		local _, _, _, color_name = full_match:match("(%w+-%s*)" .. table.concat(PREFIXES, "|") .. "([%w-]+)")
+		if color_name then
 			local rgb_str = M.TAILWIND_COLORS[color_name]
 			if rgb_str then
-				-- Extract RGB values
 				local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
 				if r then
 					r, g, b = tonumber(r), tonumber(g), tonumber(b)
 					local hex = colors.rgb_to_hex(r, g, b)
-
-					table.insert(results, {
-						color = hex,
-						start = s - 1,
-						finish = e,
-						format = "tailwind",
-					})
+					-- Find exact start/end positions for the FULL class
+					local start, finish = line:find(vim.pesc(full_match), 1, true)
+					if start then
+						table.insert(results, {
+							color = hex,
+							start = start - 1,
+							finish = finish,
+							format = "tailwind",
+							full_text = full_match, -- For debugging/logging
+						})
+					end
 				end
 			end
-
-			start_idx = e
 		end
 	end
 
+	-- Sort by start position to avoid overlaps
+	table.sort(results, function(a, b)
+		return a.start < b.start
+	end)
 	return results
 end
 

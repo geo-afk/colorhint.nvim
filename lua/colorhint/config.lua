@@ -18,12 +18,26 @@ M.options = {
 	enable_hsl = true,
 	enable_hsla = true,
 	enable_oklch = true,
-	enable_named_colors = true,
+	enable_named_colors = false,
 	enable_tailwind = true,
 
 	-- File type configuration
-	filetypes = { "*" },
-	exclude_filetypes = {},
+	-- filetypes = { "*" },
+	-- exclude_filetypes = {},
+	filetype_overrides = {
+		-- Disable named in data formats where colors are keys/values
+		json = { enable_named_colors = false },
+		yaml = { enable_named_colors = false },
+		toml = { enable_named_colors = false },
+		-- Enable only in styling contexts
+		html = { enable_named_colors = true },
+		css = { enable_named_colors = true },
+		scss = { enable_named_colors = true },
+		javascript = { enable_named_colors = true },
+		-- Add more as needed
+	},
+	-- New: Context for Tailwind (e.g., only in class-like strings)
+	tailwind_context = true, -- Use improved patterns for attributes/classes
 	exclude_buftypes = { "terminal", "prompt" },
 
 	-- Performance

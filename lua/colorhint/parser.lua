@@ -6,32 +6,37 @@ local tailwind = require("colorhint.color.tailwind")
 function M.parse_line(line)
 	local all_colors = {}
 
-	if config.options.enable_hex then
-		vim.list_extend(all_colors, M.parse_hex(line))
-	end
-
-	if config.options.enable_rgb then
-		vim.list_extend(all_colors, M.parse_rgb(line))
-	end
-
-	if config.options.enable_hsl then
-		vim.list_extend(all_colors, M.parse_hsl(line))
-	end
-
-	if config.options.enable_oklch then
-		vim.list_extend(all_colors, M.parse_oklch(line))
-	end
-	--
-	-- if config.options.enable_named_colors then
-	-- 	vim.list_extend(all_colors, M.parse_named_colors(line))
-	-- end
-
+	-- Always parse Tailwind first if enabled (claims full classes)
 	if config.options.enable_tailwind then
 		vim.list_extend(all_colors, tailwind.parse_tailwind(line))
 	end
 
+	if config.options.enable_hex then
+		vim.list_extend(all_colors, M.parse_hex(line))
+	end
+
+	-- ... other parsers (RGB, HSL, etc.) ...
+
+	-- Named colors LAST, and only if not disabled
+	local ft = vim.bo.filetype
+	local overrides = config.options.filetype_overrides[ft] or {}
+	local enable_named = config.options.enable_named_colors
+	if overrides.enable_named_colors ~= nil then
+		enable_named = overrides.enable_named_colors
+	elseif config.options.disable_named_on_tailwind and config.options.enable_tailwind then
+		enable_named = false -- Skip entirely if Tailwind is on
+	end
+	if enable_named then
+		vim.list_extend(all_colors, M.parse_named_colors(line))
+	end
+
+	-- Dedupe and sort by start position
+	table.sort(all_colors, function(a, b)
+		return a.start < b.start
+	end)
 	return all_colors
 end
+
 -- Parse hex colors
 function M.parse_hex(line)
 	local results = {}
