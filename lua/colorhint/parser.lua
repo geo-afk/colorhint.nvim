@@ -21,10 +21,10 @@ function M.parse_line(line)
 	if config.options.enable_oklch then
 		vim.list_extend(all_colors, M.parse_oklch(line))
 	end
-
-	if config.options.enable_named_colors then
-		vim.list_extend(all_colors, M.parse_named_colors(line))
-	end
+	--
+	-- if config.options.enable_named_colors then
+	-- 	vim.list_extend(all_colors, M.parse_named_colors(line))
+	-- end
 
 	if config.options.enable_tailwind then
 		vim.list_extend(all_colors, tailwind.parse_tailwind(line))
