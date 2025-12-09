@@ -33,34 +33,35 @@ end
 function M.parse_hex(line)
 	local results = {}
 
-	-- Long hex: #RRGGBB or #RRGGBBAA
-	for match in line:gmatch("#%x%x%x%x%x%x%x?%x?") do
-		if #match == 7 or #match == 9 then
-			local start, finish = line:find(match, 1, true)
-			if start then
-				table.insert(results, {
-					color = match,
-					start = start - 1,
-					finish = finish,
-					format = "hex",
-				})
-			end
+	-- Match #rrggbb and #rrggbbaa (non-overlapping)
+	for s, e, hex in line:gmatch("()#(%x%x%x%x%x%x%x?%x?)()") do
+		if #hex == 6 or #hex == 8 then
+			table.insert(results, {
+				color = "#" .. hex,
+				start = s - 1,
+				finish = e - 1,
+				format = "hex",
+			})
 		end
 	end
 
-	-- Short hex: #RGB
+	-- Match #rgb only if not part of longer match
 	if config.options.enable_short_hex then
-		for match in line:gmatch("#%x%x%x") do
-			if #match == 4 then
-				local start, finish = line:find(match, 1, true)
-				if start then
-					table.insert(results, {
-						color = match,
-						start = start - 1,
-						finish = finish,
-						format = "hex",
-					})
+		for s, e, hex in line:gmatch("()#(%x%x%x)([^%x])") do
+			local is_inside_long = false
+			for _, r in ipairs(results) do
+				if s >= r.start + 1 and s <= r.finish then
+					is_inside_long = true
+					break
 				end
+			end
+			if not is_inside_long then
+				table.insert(results, {
+					color = "#" .. hex,
+					start = s - 1,
+					finish = e - 2, -- exclude the non-hex char
+					format = "hex",
+				})
 			end
 		end
 	end

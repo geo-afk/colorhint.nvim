@@ -5,7 +5,7 @@ M.options = {
 	render = "both",
 	--  ■, ⬤, or ● — they render more consistently across fonts than ██.
 	-- virtual_symbol = "■",
-	-- virtual_symbol = "⬤ ",
+	virtual_symbol = "⬤ ",
 	virtual_symbol_suffix = " ", -- space after symbol when placed before
 	virtual_symbol_prefix = " ", -- space before symbol when placed after
 	virtual_symbol_position = "before", -- new option: "before" | "after" | "both"
