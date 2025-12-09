@@ -1,4 +1,3 @@
-
 local M = {}
 local config = require("colorhint.config")
 local colors = require("colorhint.colors")
@@ -143,7 +142,8 @@ function M.parse_oklch(line)
 		-- Pattern matches: oklch(L C H) or oklch(L C H / A)
 		-- L: 0-1 or 0%-100%, C: 0-0.4 typically, H: 0-360deg
 		local start_idx, end_idx, l, c, h, a =
-			line:find("oklch%s*%(([%d%.]+)%%?%s+([%d%.]+)%s+([%d%.]+)%s*/?%s*([%d%.]*)", offset + 1)
+			line:find("oklch%s*%(%s*([%d%.]+)%%?%s+([%d%.]+)%s+([%d%.]+)deg?%s*/?%s*([%d%.]*)")
+		-- line:find("oklch%s*%(([%d%.]+)%%?%s+([%d%.]+)%s+([%d%.]+)%s*/?%s*([%d%.]*)", offset + 1)
 
 		if not start_idx then
 			break

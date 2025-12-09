@@ -48,17 +48,18 @@ function M.render_color(bufnr, ns_id, row, color_info)
 	local hl_groups = M.get_highlight_group(color_info.color)
 	local col_start = color_info.start
 	local col_end = color_info.finish
-
 	local render_mode = config.options.render
 
-	-- Apply text highlighting
+	-- Background / Foreground highlighting
 	if render_mode == "background" or render_mode == "both" then
 		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
 			end_col = col_end,
 			hl_group = hl_groups.bg,
 			priority = 100,
 		})
-	elseif render_mode == "foreground" then
+	end
+
+	if render_mode == "foreground" then
 		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
 			end_col = col_end,
 			hl_group = hl_groups.fg,
@@ -66,15 +67,49 @@ function M.render_color(bufnr, ns_id, row, color_info)
 		})
 	end
 
-	-- Add virtual text color preview
-	if render_mode == "virtual" or render_mode == "both" then
-		local symbol = config.options.virtual_symbol
-		local suffix = config.options.virtual_symbol_suffix
-
-		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_end, {
-			virt_text = { { symbol .. suffix, hl_groups.virtual } },
-			virt_text_pos = "inline",
+	-- Underline mode (Neovim 0.10+ supports colored underlines)
+	if render_mode == "underline" then
+		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
+			end_col = col_end,
+			underline = true,
+			special = color_info.color, -- colored underline
 			priority = 100,
+		})
+	end
+
+	-- Virtual text preview (before / after / both)
+	if render_mode == "virtual" or render_mode == "both" then
+		local symbol = config.options.virtual_symbol or "■"
+		local position = config.options.virtual_symbol_position or "before"
+		local suffix = config.options.virtual_symbol_suffix or " "
+		local prefix = config.options.virtual_symbol_prefix or " "
+
+		local virt_text = {}
+		local virt_col = col_start
+
+		if position == "before" or position == "both" then
+			table.insert(virt_text, { symbol, hl_groups.virtual })
+			table.insert(virt_text, { suffix, "Normal" })
+		end
+
+		if position == "after" or position == "both" then
+			if position == "both" then
+				-- For "both", we place two symbols: one before, one after
+				-- So we only add the "after" part here
+				virt_col = col_end
+				virt_text = { { prefix, "Normal" }, { symbol, hl_groups.virtual } }
+			else
+				-- Only "after"
+				virt_text = { { prefix, "Normal" }, { symbol, hl_groups.virtual } }
+				virt_col = col_end
+			end
+		end
+
+		-- Single extmark for virtual text
+		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, virt_col, {
+			virt_text = virt_text,
+			virt_text_pos = "inline",
+			priority = 101, -- Slightly above background
 		})
 	end
 end
