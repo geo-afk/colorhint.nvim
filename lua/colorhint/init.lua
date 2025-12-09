@@ -95,25 +95,25 @@ function M.is_filetype_enabled()
 	local buftype = vim.bo.buftype
 
 	-- Check excluded buftypes
-	for _, excluded in ipairs(config.options.exclude_buftypes) do
-		if buftype == excluded then
-			return false
-		end
-	end
-
-	-- Check excluded filetypes
-	for _, excluded in ipairs(config.options.exclude_filetypes) do
-		if ft == excluded then
-			return false
-		end
-	end
-
-	-- Check enabled filetypes
-	for _, enabled in ipairs(config.options.filetypes) do
-		if enabled == "*" or enabled == ft then
-			return true
-		end
-	end
+	-- for _, excluded in ipairs(config.options.exclude_buftypes) do
+	-- 	if buftype == excluded then
+	-- 		return false
+	-- 	end
+	-- end
+	--
+	-- -- Check excluded filetypes
+	-- for _, excluded in ipairs(config.options.exclude_filetypes) do
+	-- 	if ft == excluded then
+	-- 		return false
+	-- 	end
+	-- end
+	--
+	-- -- Check enabled filetypes
+	-- for _, enabled in ipairs(config.options.filetypes) do
+	-- 	if enabled == "*" or enabled == ft then
+	-- 		return true
+	-- 	end
+	-- end
 
 	return false
 end
