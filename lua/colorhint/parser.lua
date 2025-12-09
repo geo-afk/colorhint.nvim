@@ -1,8 +1,8 @@
 local M = {}
 local config = require("colorhint.config")
 local colors = require("colorhint.colors")
+local tailwind = require("colorhint.color.tailwind")
 
--- Parse a single line and return all color matches
 function M.parse_line(line)
 	local all_colors = {}
 
@@ -26,9 +26,12 @@ function M.parse_line(line)
 		vim.list_extend(all_colors, M.parse_named_colors(line))
 	end
 
+	if config.options.enable_tailwind then
+		vim.list_extend(all_colors, tailwind.parse_tailwind(line))
+	end
+
 	return all_colors
 end
-
 -- Parse hex colors
 function M.parse_hex(line)
 	local results = {}
