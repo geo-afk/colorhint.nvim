@@ -16,9 +16,9 @@ local PRIORITY_MAP = {
 }
 
 -- Remove overlapping colors, keeping higher priority ones
-local function remove_overlaps(color)
-	if #color == 0 then
-		return color
+local function remove_overlaps(colors)
+	if #colors == 0 then
+		return colors
 	end
 
 	-- Sort by start position, then by priority (higher first)
@@ -45,9 +45,8 @@ end
 
 -- Check if a color match is in a valid context
 local function is_valid_context(line, start_pos, finish_pos, color_format)
-	-- SIMPLIFIED: Just check for context_aware flag, if disabled return true
 	if not config.options.context_aware then
-		return true
+		return true -- Context checking disabled
 	end
 
 	local ft = vim.bo.filetype
@@ -55,39 +54,34 @@ local function is_valid_context(line, start_pos, finish_pos, color_format)
 	-- Get text before the match
 	local before = line:sub(1, start_pos)
 
-	-- For named colors, avoid matching object keys
 	if color_format == "named" then
-		-- Check if this looks like a key in an object/map
-		if before:match("%[%s*[\"']?$") or before:match("%{%s*[\"']?$") then
-			return false
+		if before:match("%[%s*[\"']?$$ ") or before:match("%{%s*[\"']? $$") then -- Removed the colon pattern here
+			return false -- Likely a key, not a value
 		end
 
 		local after = line:sub(finish_pos + 1)
 		if after:match("^%s*:") then
-			return false
+			return false -- Likely a key if followed by colon
 		end
 	end
 
-	-- For HTML, be very permissive - basically accept everything
+	-- Check for different contexts based on filetype
 	if ft == "html" or ft == "vue" or ft == "svelte" or ft == "astro" then
-		return true -- Accept all colors in HTML files
-	end
-
-	-- For CSS, colors should be after property colon or in function
-	if ft == "css" or ft == "scss" or ft == "sass" or ft == "less" then
-		local in_css_value = before:match("%:%s*") ~= nil
+		-- In HTML-like files, colors should be in attributes or style
+		local in_attribute = before:match("[a-zA-Z%-]+%s*=%s*[\"']$") ~= nil
+		local in_style = before:match("style%s*=%s*[\"'][^\"']*$") ~= nil
+		return in_attribute or in_style
+	elseif ft == "css" or ft == "scss" or ft == "sass" or ft == "less" then
+		-- In CSS, colors should be after property colon or in function
+		local in_css_value = before:match("%:%s*$") ~= nil
 		local in_function = before:match("%(%s*[^%)]*$") ~= nil
 		return in_css_value or in_function or color_format == "named"
-	end
-
-	-- For JS/TS, colors typically in strings or Tailwind classes
-	if ft == "javascript" or ft == "typescript" or ft == "javascriptreact" or ft == "typescriptreact" then
+	elseif ft == "javascript" or ft == "typescript" or ft == "javascriptreact" or ft == "typescriptreact" then
+		-- In JS/TS, colors typically in strings or Tailwind classes
 		local in_string = (before:match("[\"'][^\"']*$") or before:match("`[^`]*$")) ~= nil
 		return in_string or color_format == "tailwind"
-	end
-
-	-- For Lua/Python, colors typically in strings
-	if ft == "lua" or ft == "python" then
+	elseif ft == "lua" or ft == "python" then
+		-- In Lua/Python, colors typically in strings
 		local in_string = (before:match("[\"'][^\"']*$") or before:match("'[^']*$")) ~= nil
 		return in_string
 	end
@@ -100,6 +94,7 @@ function M.parse_line(line)
 	local all_colors = {}
 
 	-- Parse in priority order (highest priority first)
+	-- This helps with overlap detection
 
 	-- 1. Tailwind classes (highest priority - semantic units)
 	if config.options.enable_tailwind then

@@ -49,19 +49,8 @@ function M.setup_autocmds()
 	vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
 		group = group,
 		callback = function()
-			-- DEBUG: Print when autocmd fires
-			print("ColorHint: BufEnter/BufWritePost fired for filetype: " .. vim.bo.filetype)
-
 			if M.is_filetype_enabled() and M.is_file_size_ok() then
-				print("ColorHint: Conditions met, highlighting buffer")
 				M.highlight_buffer()
-			else
-				print(
-					"ColorHint: Conditions NOT met - enabled: "
-						.. tostring(M.is_filetype_enabled())
-						.. ", size ok: "
-						.. tostring(M.is_file_size_ok())
-				)
 			end
 		end,
 	})
@@ -89,8 +78,6 @@ function M.setup_autocmds()
 	vim.api.nvim_create_autocmd("FileType", {
 		group = group,
 		callback = function()
-			print("ColorHint: FileType autocmd fired for: " .. vim.bo.filetype)
-
 			if M.is_filetype_enabled() and M.is_file_size_ok() then
 				-- Small delay to let filetype detection settle
 				vim.defer_fn(function()
@@ -124,38 +111,9 @@ function M.setup_commands()
 	end, { desc = "Disable ColorHint" })
 
 	vim.api.nvim_create_user_command("ColorHintClearCache", function()
-		local renderer = get_renderer()
 		renderer.clear_cache()
-		local utils = get_utils()
 		utils.notify("Highlight cache cleared", "info")
 	end, { desc = "Clear ColorHint highlight cache" })
-
-	-- NEW: Debug command to see what's being parsed
-	vim.api.nvim_create_user_command("ColorHintDebug", function()
-		local parser = get_parser()
-		local line = vim.api.nvim_get_current_line()
-		local line_num = vim.api.nvim_win_get_cursor(0)[1]
-
-		print("=== ColorHint Debug ===")
-		print("Filetype: " .. vim.bo.filetype)
-		print("Line " .. line_num .. ": " .. line)
-
-		local colors = parser.parse_line(line)
-		print("Found " .. #colors .. " colors:")
-
-		for i, color in ipairs(colors) do
-			print(
-				string.format(
-					"  %d. format=%s, color=%s, start=%d, finish=%d",
-					i,
-					color.format,
-					color.color,
-					color.start,
-					color.finish
-				)
-			)
-		end
-	end, { desc = "Debug ColorHint parsing on current line" })
 end
 
 -- Setup default highlights for contrast
@@ -263,32 +221,20 @@ function M.highlight_buffer(bufnr)
 		return
 	end
 
-	-- DEBUG: Print when highlighting
-	print("ColorHint: Highlighting buffer " .. bufnr .. " for filetype: " .. vim.bo.filetype)
-
 	-- Clear existing highlights
 	vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, 0, -1)
 
 	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-	local total_colors = 0
 
 	for line_num, line in ipairs(lines) do
 		if line and #line > 0 then
 			local colors = parser.parse_line(line)
-
-			if #colors > 0 then
-				print(string.format("Line %d: Found %d colors", line_num, #colors))
-			end
-
-			total_colors = total_colors + #colors
 
 			for _, color_info in ipairs(colors) do
 				renderer.render_color(bufnr, M.ns_id, line_num - 1, color_info)
 			end
 		end
 	end
-
-	print("ColorHint: Total colors found: " .. total_colors)
 end
 
 -- Debounced update with mode-aware delay
