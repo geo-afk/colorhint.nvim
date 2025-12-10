@@ -99,4 +99,27 @@ M.options = {
 	enable_notifications = true,
 }
 
--- Rest of the file remains the same...
+function M.setup(opts)
+	M.options = vim.tbl_deep_extend("force", M.options, opts or {})
+
+	-- Apply filetype overrides if present
+	local ft = vim.bo.filetype
+	if M.options.filetype_overrides[ft] then
+		local overrides = M.options.filetype_overrides[ft]
+		M.options = vim.tbl_extend("force", M.options, overrides)
+	end
+end
+
+-- Get effective config for current buffer
+function M.get_buffer_config()
+	local ft = vim.bo.filetype
+	local base = vim.deepcopy(M.options)
+
+	if M.options.filetype_overrides[ft] then
+		return vim.tbl_extend("force", base, M.options.filetype_overrides[ft])
+	end
+
+	return base
+end
+
+return M
