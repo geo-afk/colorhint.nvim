@@ -1,24 +1,40 @@
 local M = {}
-local config = require("colorhint.config")
-local parser = require("colorhint.parser")
-local renderer = require("colorhint.renderer")
-local utils = require("colorhint.utils")
+
+-- Lazy-loaded requires (only load when needed)
+local function get_config()
+	return require("colorhint.config")
+end
+
+local function get_parser()
+	return require("colorhint.parser")
+end
+
+local function get_renderer()
+	return require("colorhint.renderer")
+end
+
+local function get_utils()
+	return require("colorhint.utils")
+end
 
 -- State
 M.ns_id = nil
 M.timer = nil
 M.enabled = true
 
--- Setup function
 function M.setup(opts)
-	config.setup(opts)
+	-- Now it's safe: this creates the real config module
+	require("colorhint.config").setup(opts or {})
+
+	-- Now we can safely require everything else
+
 	M.ns_id = vim.api.nvim_create_namespace("ColorHint")
 
 	M.setup_autocmds()
 	M.setup_commands()
 	M.setup_highlights()
 
-	-- Initial highlight with delay
+	-- Initial highlight
 	vim.defer_fn(function()
 		if M.is_filetype_enabled() and M.is_file_size_ok() then
 			M.highlight_buffer()
@@ -108,6 +124,7 @@ end
 
 -- Check if current file size is acceptable
 function M.is_file_size_ok()
+	local config = get_config()
 	local max_size = config.options.max_file_size
 	if not max_size or max_size <= 0 then
 		return true
@@ -129,6 +146,7 @@ function M.is_filetype_enabled()
 		return false
 	end
 
+	local config = get_config()
 	local ft = vim.bo.filetype
 	local buftype = vim.bo.buftype
 
@@ -194,6 +212,8 @@ function M.highlight_buffer(bufnr)
 		return
 	end
 
+	local parser = get_parser()
+	local renderer = get_renderer()
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
 
 	-- Validate buffer
@@ -231,6 +251,8 @@ function M.schedule_update(bufnr)
 
 	-- Longer delay in insert mode for better performance
 	local mode = vim.fn.mode()
+
+	local config = get_config()
 	local delay = (mode == "i" or mode == "R") and 250 or config.options.update_delay
 
 	M.timer:start(
@@ -246,6 +268,7 @@ end
 
 -- Toggle highlighting
 function M.toggle()
+	local utils = get_utils()
 	M.enabled = not M.enabled
 	if M.enabled then
 		M.highlight_buffer()
