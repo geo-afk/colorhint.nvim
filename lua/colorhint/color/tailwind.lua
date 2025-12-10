@@ -2,7 +2,7 @@ local M = {}
 local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 
--- Borrowed from other plugin: Tailwind named colors (expanded your table)
+-- Comprehensive Tailwind color palette (unchanged from your version)
 M.TAILWIND_COLORS = {
 	["black"] = "rgb(0 0 0)",
 	["white"] = "rgb(255 255 255)",
@@ -228,7 +228,7 @@ M.TAILWIND_COLORS = {
 	["rose-900"] = "rgb(136 19 55)",
 }
 
--- Tailwind color prefixes (unchanged)
+-- Tailwind color prefixes
 local PREFIXES = {
 	"bg",
 	"text",
@@ -246,10 +246,7 @@ local PREFIXES = {
 	"placeholder",
 }
 
--- Borrowed from other plugin: Improved tailwind pattern
-local TAILWIND_PATTERN = "!?%a+" .. "%-%a+[%-%d+]*" -- e.g., bg-slate-500, !text-red-300
-
--- Convert rgb string to hex (unchanged)
+-- Convert rgb string to hex
 local function rgb_to_hex(rgb_str)
 	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
 	if r then
@@ -259,7 +256,18 @@ local function rgb_to_hex(rgb_str)
 	return nil
 end
 
--- Parse Tailwind classes from line (updated with borrowed pattern)
+-- FIXED: Build a trie-like cache for faster color lookups
+local color_cache = {}
+local function build_color_cache()
+	if next(color_cache) then
+		return
+	end
+	for color_name, _ in pairs(M.TAILWIND_COLORS) do
+		color_cache[color_name] = true
+	end
+end
+
+-- FIXED: Improved Tailwind class parsing with proper boundaries
 function M.parse_tailwind(line)
 	local results = {}
 
@@ -267,54 +275,67 @@ function M.parse_tailwind(line)
 		return results
 	end
 
+	build_color_cache()
+
 	-- Track found positions to avoid duplicates
-	local found_positions = {}
+	local seen = {}
 
-	-- For each prefix, search for all occurrences
+	-- FIXED: Simplified and more accurate pattern
+	-- Matches: optional ! + optional variants (dark:, hover:, etc) + prefix + color
 	for _, prefix in ipairs(PREFIXES) do
-		local search_start = 1
+		local idx = 1
+		while idx <= #line do
+			-- Pattern breakdown:
+			-- ([%s"'`{[,=]?) - word boundary (space, quote, bracket, etc)
+			-- (!?) - optional ! for important
+			-- ([%w%-]*:)* - optional variants like dark:, hover:, md:
+			-- (%w+%-) - prefix with dash (bg-, text-, etc)
+			-- ([%w%-]+) - color name (red-500, slate-100, etc)
+			local before, important, variants, matched_prefix, color_part, after_pos =
+				line:find("([%s\"'`{[,=]?)(!?)([%w%-]*:)*(" .. prefix .. "%-)([%w%-]+)", idx)
 
-		while search_start <= #line do
-			local pattern = "([%s\\\"'`{[%s=,]?)(([-%a%d]+:)*" .. prefix .. "%-([%a][-%a%d]*))" -- Unchanged core
-			local _, match_start, _, full_match, color_part = line:find(pattern, search_start)
-
-			if not match_start then
+			if not before then
 				break
 			end
 
-			-- Adjust positions: match_start points to the actual class start (after boundary)
-			local actual_start = match_start
-			local actual_end = match_start + #full_match - 1
+			-- Calculate actual class start (after the boundary character)
+			local class_start = before + #line:sub(before, before):match("^%s*")
+			if line:sub(before, before):match("[\"'`{[,=]") then
+				class_start = before + 1
+			end
 
-			-- Check if this color exists in our palette or matches named pattern
-			if M.TAILWIND_COLORS[color_part] or line:match(TAILWIND_PATTERN) then
-				-- Check for duplicates at this position
-				local pos_key = actual_start .. "-" .. actual_end
+			-- Build full class name
+			local full_class = important .. (variants or "") .. matched_prefix .. color_part
+			local class_end = class_start + #full_class - 1
 
-				if not found_positions[pos_key] then
+			-- Check if this color exists in our palette
+			if color_cache[color_part] then
+				local pos_key = class_start .. "-" .. class_end
+
+				if not seen[pos_key] then
 					local rgb_str = M.TAILWIND_COLORS[color_part]
 					local hex = rgb_to_hex(rgb_str)
 
 					if hex then
 						table.insert(results, {
 							color = hex,
-							start = actual_start - 1, -- Convert to 0-indexed
-							finish = actual_end,
+							start = class_start - 1, -- Convert to 0-indexed
+							finish = class_end,
 							format = "tailwind",
-							class_name = full_match,
+							class_name = full_class,
 						})
 
-						found_positions[pos_key] = true
+						seen[pos_key] = true
 					end
 				end
 			end
 
 			-- Move past this match
-			search_start = actual_end + 1
+			idx = after_pos
 		end
 	end
 
-	-- Sort by position
+	-- Sort by position for consistency
 	table.sort(results, function(a, b)
 		return a.start < b.start
 	end)
