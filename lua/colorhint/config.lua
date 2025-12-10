@@ -18,7 +18,7 @@ M.options = {
 	enable_hsl = true,
 	enable_hsla = true,
 	enable_oklch = true,
-	enable_named_colors = false, -- Disabled by default due to ambiguity
+	enable_named_colors = true, -- Disabled by default due to ambiguity
 	enable_tailwind = true,
 
 	-- Context awareness (NEW)
