@@ -247,7 +247,7 @@ local PREFIXES = {
 
 -- Convert rgb string to hex
 local function rgb_to_hex(rgb_str)
-	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)%)?") -- Made ) optional for safety
+	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)%)")
 	if r then
 		r, g, b = tonumber(r), tonumber(g), tonumber(b)
 		return colors.rgb_to_hex(r, g, b)
@@ -263,33 +263,34 @@ function M.parse_tailwind(line)
 		return results
 	end
 
-	-- Track found positions to avoid duplicates
 	local found_positions = {}
 
-	-- For each prefix, search for all occurrences
 	for _, prefix in ipairs(PREFIXES) do
 		local search_start = 1
 
 		while search_start <= #line do
-			-- Pattern: prefix-colorname-shade or prefix-colorname
-			-- Must be preceded by word boundary (space, quote, or start of line)
-			-- Must be followed by word boundary (space, quote, or end of line)
-			local pattern = "([%s\"'`{[=,]?)(" .. prefix .. "%-([%a]+%-?%d*))"
-			local whole_start, whole_end, boundary, full_match, color_part = line:find(pattern, search_start)
+			-- Pattern breakdown:
+			-- [%s"'\`{\[=,:;]?   → word boundary (space, quotes, braces, =, comma, colon, semicolon)
+			-- (([%w%-]+:)*)      → zero or more variants like "hover:", "md:hover:", "dark:"
+			-- (%s*%f[%w]         → optional whitespace before prefix
+			-- ()(prefix%-        → the actual color prefix (bg-, text-, etc.)
+			-- ([%a]+%-?%d*)      → color name + optional shade (gray-200, red, blue)
+			local pattern = "([%s\"'`{[=,:;]?)(([%w%-]+:)*)(%s*%f[%w])(" .. prefix .. "%-([%a]+%-?%d*))"
+
+			local whole_start, whole_end, boundary, variants, _, full_match, color_part =
+				line:find(pattern, search_start)
 
 			if not whole_start then
 				break
 			end
 
-			-- Adjust positions: class starts after the boundary
-			local actual_start = whole_start + #boundary
-			local actual_end = whole_end
+			-- Reconstruct full class name including variants
+			local class_start = whole_start + #boundary
+			local class_end = whole_end
 
-			-- Check if this color exists in our palette
+			-- Only proceed if the color shade exists in palette
 			if M.TAILWIND_COLORS[color_part] then
-				-- Check for duplicates at this position
-				local pos_key = actual_start .. "-" .. actual_end
-
+				local pos_key = class_start .. "-" .. class_end
 				if not found_positions[pos_key] then
 					local rgb_str = M.TAILWIND_COLORS[color_part]
 					local hex = rgb_to_hex(rgb_str)
@@ -297,28 +298,25 @@ function M.parse_tailwind(line)
 					if hex then
 						table.insert(results, {
 							color = hex,
-							start = actual_start - 1, -- Convert to 0-indexed
-							finish = actual_end,
+							start = class_start - 1, -- 0-indexed
+							finish = class_end,
 							format = "tailwind",
-							class_name = full_match,
+							class_name = full_match, -- e.g., "hover:bg-gray-200"
 						})
-
 						found_positions[pos_key] = true
 					end
 				end
 			end
 
-			-- Move past this match
-			search_start = actual_end + 1
+			search_start = class_end + 1
 		end
 	end
 
-	-- Sort by position
+	-- Sort by start position
 	table.sort(results, function(a, b)
 		return a.start < b.start
 	end)
 
 	return results
 end
-
 return M

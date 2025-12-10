@@ -52,31 +52,26 @@ function M.render_color(bufnr, ns_id, row, color_info)
 
 	-- Special handling for Tailwind classes - place symbol BEFORE the class
 	if color_info.format == "tailwind" then
-		-- NEW: Optionally add background if enabled
+		-- Optional background highlight for Tailwind classes
 		if config.options.tailwind_render_background and (render_mode == "background" or render_mode == "both") then
 			vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
 				end_col = col_end,
 				hl_group = hl_groups.bg,
-				priority = 100,
+				priority = config.options.extmark_priority.background,
 			})
 		end
 
+		-- Virtual text preview (always before the class)
 		if render_mode == "virtual" or render_mode == "both" then
-			local symbol = config.options.virtual_symbol or "■ "
-			local prefix = config.options.virtual_symbol_prefix or " "
+			local symbol = config.options.virtual_symbol or "■"
+			local prefix = config.options.virtual_symbol_prefix or ""
 
-			-- Place the colored square BEFORE the tailwind class
 			vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
-				virt_text = {
-					{ prefix, "Normal" },
-					{ symbol, hl_groups.virtual },
-				},
+				virt_text = { { prefix .. symbol, hl_groups.virtual } },
 				virt_text_pos = "inline",
-				priority = 102,
+				priority = config.options.extmark_priority.virtual,
 			})
 		end
-		-- Don't add the "after" symbol for Tailwind classes
-		-- They should only have the indicator before them
 	else
 		-- Background / Foreground highlighting for non-Tailwind colors
 		if render_mode == "background" or render_mode == "both" then

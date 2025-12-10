@@ -30,6 +30,7 @@ M.options = {
 	-- File type configuration
 	enabled_filetypes = {
 		"html",
+		"htmlangular",
 		"css",
 		"scss",
 		"sass",
