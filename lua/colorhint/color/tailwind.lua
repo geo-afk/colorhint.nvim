@@ -228,7 +228,6 @@ M.TAILWIND_COLORS = {
 	["rose-900"] = "rgb(136 19 55)",
 }
 
--- Tailwind color prefixes
 local PREFIXES = {
 	"bg",
 	"text",
@@ -248,7 +247,7 @@ local PREFIXES = {
 
 -- Convert rgb string to hex
 local function rgb_to_hex(rgb_str)
-	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
+	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)%)?") -- Made ) optional for safety
 	if r then
 		r, g, b = tonumber(r), tonumber(g), tonumber(b)
 		return colors.rgb_to_hex(r, g, b)
@@ -275,17 +274,16 @@ function M.parse_tailwind(line)
 			-- Pattern: prefix-colorname-shade or prefix-colorname
 			-- Must be preceded by word boundary (space, quote, or start of line)
 			-- Must be followed by word boundary (space, quote, or end of line)
-			-- FIX: Changed the color_part capture group to be more permissive of hyphens
-			local pattern = "([%s\"'`{[%s=,]?)(" .. prefix .. "%-([%a][-%a%d]*))"
-			local boundary_start, match_start, boundary, full_match, color_part = line:find(pattern, search_start)
+			local pattern = "([%s\"'`{[=,]?)(" .. prefix .. "%-([%a]+%-?%d*))"
+			local whole_start, whole_end, boundary, full_match, color_part = line:find(pattern, search_start)
 
-			if not match_start then
+			if not whole_start then
 				break
 			end
 
-			-- Adjust positions: match_start points to the actual class start (after boundary)
-			local actual_start = match_start
-			local actual_end = match_start + #full_match - 1
+			-- Adjust positions: class starts after the boundary
+			local actual_start = whole_start + #boundary
+			local actual_end = whole_end
 
 			-- Check if this color exists in our palette
 			if M.TAILWIND_COLORS[color_part] then
