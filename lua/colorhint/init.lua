@@ -35,22 +35,37 @@ function M.setup(opts)
 	M.setup_highlights()
 
 	-- Initial highlight
-	vim.defer_fn(function()
-		if M.is_filetype_enabled() and M.is_file_size_ok() then
-			M.highlight_buffer()
-		end
-	end, 100)
+	-- vim.defer_fn(function()
+	-- 	if M.is_filetype_enabled() and M.is_file_size_ok() then
+	-- 		M.highlight_buffer()
+	-- 	end
+	-- end, 100)
 end
 
 -- Setup autocmds
 function M.setup_autocmds()
 	local group = vim.api.nvim_create_augroup("ColorHint", { clear = true })
 
-	vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
+	vim.api.nvim_create_autocmd("BufWinEnter", {
 		group = group,
 		callback = function()
 			if M.is_filetype_enabled() and M.is_file_size_ok() then
 				M.highlight_buffer()
+			end
+		end,
+	})
+
+	-- Handle filetype changes (Keep this, but remove the defer_fn for simplicity)
+	vim.api.nvim_create_autocmd("FileType", {
+		group = group,
+		callback = function()
+			if M.is_filetype_enabled() and M.is_file_size_ok() then
+				-- We can remove the defer_fn here and let it run immediately
+				M.highlight_buffer()
+			else
+				-- Clear if filetype is not supported
+				local bufnr = vim.api.nvim_get_current_buf()
+				vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, 0, -1)
 			end
 		end,
 	})
