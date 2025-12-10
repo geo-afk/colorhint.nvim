@@ -3,45 +3,165 @@ local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 local tailwind = require("colorhint.color.tailwind")
 
+-- Priority map for different color formats
+local PRIORITY_MAP = {
+	tailwind = 5,
+	rgb = 4,
+	rgba = 4,
+	hsl = 4,
+	hsla = 4,
+	oklch = 4,
+	hex = 3,
+	named = 1,
+}
+
+-- Remove overlapping colors, keeping higher priority ones
+local function remove_overlaps(colors)
+	if #colors == 0 then
+		return colors
+	end
+
+	-- Sort by start position, then by priority (higher first)
+	table.sort(colors, function(a, b)
+		if a.start == b.start then
+			return (a.priority or 0) > (b.priority or 0)
+		end
+		return a.start < b.start
+	end)
+
+	local result = {}
+	local last_end = -1
+
+	for _, color in ipairs(colors) do
+		-- Only add if it doesn't overlap with previous
+		if color.start >= last_end then
+			table.insert(result, color)
+			last_end = color.finish
+		end
+	end
+
+	return result
+end
+
+-- Check if a color match is in a valid context
+local function is_valid_context(line, start_pos, finish_pos, color_format)
+	if not config.options.context_aware then
+		return true -- Context checking disabled
+	end
+
+	local ft = vim.bo.filetype
+
+	-- Get text before the match
+	local before = line:sub(1, start_pos)
+
+	-- Check for different contexts based on filetype
+	if ft == "html" or ft == "vue" or ft == "svelte" or ft == "astro" then
+		-- In HTML-like files, colors should be in attributes or style
+		local in_attribute = before:match("[a-zA-Z%-]+%s*=%s*[\"']$") ~= nil
+		local in_style = before:match("style%s*=%s*[\"'][^\"']*$") ~= nil
+		return in_attribute or in_style
+	elseif ft == "css" or ft == "scss" or ft == "sass" or ft == "less" then
+		-- In CSS, colors should be after property colon or in function
+		local in_css_value = before:match("%:%s*$") ~= nil
+		local in_function = before:match("%(%s*[^%)]*$") ~= nil
+		return in_css_value or in_function or color_format == "named"
+	elseif ft == "javascript" or ft == "typescript" or ft == "javascriptreact" or ft == "typescriptreact" then
+		-- In JS/TS, colors typically in strings or Tailwind classes
+		local in_string = (before:match("[\"'][^\"']*$") or before:match("`[^`]*$")) ~= nil
+		return in_string or color_format == "tailwind"
+	elseif ft == "lua" or ft == "python" then
+		-- In Lua/Python, colors typically in strings
+		local in_string = (before:match("[\"'][^\"']*$") or before:match("'[^']*$")) ~= nil
+		return in_string
+	end
+
+	return true -- Allow in other filetypes
+end
+
+-- Main parsing function
 function M.parse_line(line)
 	local all_colors = {}
 
-	-- Always parse Tailwind first if enabled (claims full classes)
+	-- Parse in priority order (highest priority first)
+	-- This helps with overlap detection
+
+	-- 1. Tailwind classes (highest priority - semantic units)
 	if config.options.enable_tailwind then
-		vim.list_extend(all_colors, tailwind.parse_tailwind(line))
+		local tw_colors = tailwind.parse_tailwind(line)
+		for _, color in ipairs(tw_colors) do
+			color.priority = PRIORITY_MAP.tailwind
+			table.insert(all_colors, color)
+		end
 	end
 
+	-- 2. Function formats (rgb, hsl, oklch)
+	if config.options.enable_rgb or config.options.enable_rgba then
+		local rgb_colors = M.parse_rgb(line)
+		for _, color in ipairs(rgb_colors) do
+			color.priority = PRIORITY_MAP[color.format]
+			table.insert(all_colors, color)
+		end
+	end
+
+	if config.options.enable_hsl or config.options.enable_hsla then
+		local hsl_colors = M.parse_hsl(line)
+		for _, color in ipairs(hsl_colors) do
+			color.priority = PRIORITY_MAP[color.format]
+			table.insert(all_colors, color)
+		end
+	end
+
+	if config.options.enable_oklch then
+		local oklch_colors = M.parse_oklch(line)
+		for _, color in ipairs(oklch_colors) do
+			color.priority = PRIORITY_MAP.oklch
+			table.insert(all_colors, color)
+		end
+	end
+
+	-- 3. Hex colors
 	if config.options.enable_hex then
-		vim.list_extend(all_colors, M.parse_hex(line))
+		local hex_colors = M.parse_hex(line)
+		for _, color in ipairs(hex_colors) do
+			color.priority = PRIORITY_MAP.hex
+			table.insert(all_colors, color)
+		end
 	end
 
-	-- ... other parsers (RGB, HSL, etc.) ...
-
-	-- Named colors LAST, and only if not disabled
+	-- 4. Named colors (lowest priority - most ambiguous)
 	local ft = vim.bo.filetype
 	local overrides = config.options.filetype_overrides[ft] or {}
 	local enable_named = config.options.enable_named_colors
 	if overrides.enable_named_colors ~= nil then
 		enable_named = overrides.enable_named_colors
-	elseif config.options.disable_named_on_tailwind and config.options.enable_tailwind then
-		enable_named = false -- Skip entirely if Tailwind is on
-	end
-	if enable_named then
-		vim.list_extend(all_colors, M.parse_named_colors(line))
 	end
 
-	-- Dedupe and sort by start position
-	table.sort(all_colors, function(a, b)
-		return a.start < b.start
-	end)
-	return all_colors
+	if enable_named then
+		local named_colors = M.parse_named_colors(line)
+		for _, color in ipairs(named_colors) do
+			color.priority = PRIORITY_MAP.named
+			table.insert(all_colors, color)
+		end
+	end
+
+	-- Filter by context validity
+	local valid_colors = {}
+	for _, color in ipairs(all_colors) do
+		if is_valid_context(line, color.start, color.finish, color.format) then
+			table.insert(valid_colors, color)
+		end
+	end
+
+	-- Remove overlaps
+	return remove_overlaps(valid_colors)
 end
 
--- Parse hex colors
+-- Parse hex colors with better boundary detection
 function M.parse_hex(line)
 	local results = {}
-	local idx = 1
 
+	-- Long hex: #RRGGBB or #RRGGBBAA
+	local idx = 1
 	while idx <= #line do
 		local start_pos, end_pos, hex = line:find("(#%x%x%x%x%x%x%x?%x?)", idx)
 		if not start_pos then
@@ -50,37 +170,48 @@ function M.parse_hex(line)
 
 		local len = end_pos - start_pos + 1
 		if len == 7 or len == 9 then
-			table.insert(results, {
-				color = hex,
-				start = start_pos - 1,
-				finish = end_pos,
-				format = "hex",
-			})
-			idx = end_pos + 1
+			-- Check it's not part of a longer hex string
+			local after_char = line:sub(end_pos + 1, end_pos + 1)
+			if not after_char:match("%x") then
+				table.insert(results, {
+					color = hex,
+					start = start_pos - 1,
+					finish = end_pos,
+					format = "hex",
+				})
+				idx = end_pos + 1
+			else
+				idx = start_pos + 1
+			end
 		else
 			idx = start_pos + 1
 		end
 	end
 
-	-- Short hex #rgb (only if enabled)
+	-- Short hex: #RGB (only if enabled)
 	if config.options.enable_short_hex then
 		idx = 1
 		while idx <= #line do
-			local start_pos, end_pos, hex = line:find("(#%x%x%x)(%W)", idx)
+			-- Match #XXX followed by non-hex character
+			local start_pos, end_pos, hex = line:find("(#%x%x%x)([^%x])", idx)
 			if not start_pos then
-				break
-			end
-
-			-- Avoid matching inside longer hex
-			local inside_long = false
-			for _, r in ipairs(results) do
-				if start_pos >= r.start + 1 and end_pos <= r.finish + 1 then
-					inside_long = true
+				-- Try at end of line
+				start_pos, end_pos, hex = line:find("(#%x%x%x)$", idx)
+				if not start_pos then
 					break
 				end
 			end
 
-			if not inside_long then
+			-- Avoid matching if already in results
+			local is_duplicate = false
+			for _, r in ipairs(results) do
+				if start_pos >= r.start + 1 and end_pos - 1 <= r.finish + 1 then
+					is_duplicate = true
+					break
+				end
+			end
+
+			if not is_duplicate then
 				table.insert(results, {
 					color = hex,
 					start = start_pos - 1,
@@ -88,6 +219,7 @@ function M.parse_hex(line)
 					format = "hex",
 				})
 			end
+
 			idx = end_pos
 		end
 	end
@@ -95,14 +227,17 @@ function M.parse_hex(line)
 	return results
 end
 
--- Parse RGB/RGBA colors
+-- Parse RGB/RGBA colors with better validation
 function M.parse_rgb(line)
 	local results = {}
 	local offset = 0
 
 	while true do
-		local start_idx, end_idx, r, g, b, a =
-			line:find("rgba?%s*%((%d+)%s*[,/]?%s*(%d+)%s*[,/]?%s*(%d+)%s*[,/]?%s*([%d%.]*)", offset + 1)
+		-- Match rgba? with various separators
+		local start_idx, end_idx, r, g, b, a = line:find(
+			"rgba?%s*%((%d+%.?%d*)%s*[,/]?%s*(%d+%.?%d*)%s*[,/]?%s*(%d+%.?%d*)%s*[,/]?%s*([%d%.]*)",
+			offset + 1
+		)
 
 		if not start_idx then
 			break
@@ -111,13 +246,16 @@ function M.parse_rgb(line)
 		r, g, b = tonumber(r), tonumber(g), tonumber(b)
 		a = a ~= "" and tonumber(a) or 1
 
+		-- Validate ranges
 		if r and g and b and r <= 255 and g <= 255 and b <= 255 then
 			local hex = colors.rgb_to_hex(r, g, b, a)
+			local format = (a and a < 1) and "rgba" or "rgb"
+
 			table.insert(results, {
 				color = hex,
 				start = start_idx - 1,
 				finish = end_idx,
-				format = "rgb",
+				format = format,
 			})
 		end
 
@@ -133,8 +271,10 @@ function M.parse_hsl(line)
 	local offset = 0
 
 	while true do
-		local start_idx, end_idx, h, s, l, a =
-			line:find("hsla?%s*%((%d+)%s*[,/]?%s*(%d+)%%?%s*[,/]?%s*(%d+)%%?%s*[,/]?%s*([%d%.]*)", offset + 1)
+		local start_idx, end_idx, h, s, l, a = line:find(
+			"hsla?%s*%((%d+%.?%d*)%s*[,/]?%s*(%d+%.?%d*)%%?%s*[,/]?%s*(%d+%.?%d*)%%?%s*[,/]?%s*([%d%.]*)",
+			offset + 1
+		)
 
 		if not start_idx then
 			break
@@ -146,11 +286,13 @@ function M.parse_hsl(line)
 		if h and s and l and h <= 360 and s <= 100 and l <= 100 then
 			local r, g, b = colors.hsl_to_rgb(h, s, l)
 			local hex = colors.rgb_to_hex(r, g, b, a)
+			local format = (a and a < 1) and "hsla" or "hsl"
+
 			table.insert(results, {
 				color = hex,
 				start = start_idx - 1,
 				finish = end_idx,
-				format = "hsl",
+				format = format,
 			})
 		end
 
@@ -166,11 +308,9 @@ function M.parse_oklch(line)
 	local offset = 0
 
 	while true do
-		-- Pattern matches: oklch(L C H) or oklch(L C H / A)
-		-- L: 0-1 or 0%-100%, C: 0-0.4 typically, H: 0-360deg
+		-- oklch(L C H) or oklch(L C H / A)
 		local start_idx, end_idx, l, c, h, a =
-			line:find("oklch%s*%(%s*([%d%.]+)%%?%s+([%d%.]+)%s+([%d%.]+)deg?%s*/?%s*([%d%.]*)")
-		-- line:find("oklch%s*%(([%d%.]+)%%?%s+([%d%.]+)%s+([%d%.]+)%s*/?%s*([%d%.]*)", offset + 1)
+			line:find("oklch%s*%(%s*([%d%.]+)%%?%s+([%d%.]+)%s+([%d%.]+)deg?%s*/?%s*([%d%.]*)", offset + 1)
 
 		if not start_idx then
 			break
@@ -182,12 +322,11 @@ function M.parse_oklch(line)
 		a = a ~= "" and tonumber(a) or 1
 
 		if l and c and h then
-			-- Convert L from percentage if needed (0-100% to 0-1)
+			-- Convert L from percentage if needed
 			if l > 1 then
 				l = l / 100
 			end
 
-			-- Convert OKLCH to RGB
 			local r, g, b = colors.oklch_to_rgb(l, c, h)
 			local hex = colors.rgb_to_hex(r, g, b, a)
 
@@ -205,12 +344,12 @@ function M.parse_oklch(line)
 	return results
 end
 
--- Parse named CSS colors
+-- Parse named CSS colors with word boundaries
 function M.parse_named_colors(line)
 	local results = {}
 
 	for name, hex in pairs(colors.NAMED_COLORS) do
-		-- Word boundary pattern to match only complete color names
+		-- Use word boundary pattern
 		local pattern = "%f[%a]" .. name .. "%f[%A]"
 		local start_idx = 1
 

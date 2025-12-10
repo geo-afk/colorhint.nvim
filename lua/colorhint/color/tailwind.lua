@@ -2,7 +2,7 @@ local M = {}
 local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 
--- Full Tailwind v3+ color palette (you provided it)
+-- Full Tailwind v3+ color palette
 M.TAILWIND_COLORS = {
 	["black"] = "rgb(0 0 0)",
 	["white"] = "rgb(255 255 255)",
@@ -116,7 +116,7 @@ M.TAILWIND_COLORS = {
 	["green-700"] = "rgb(21 128 61)",
 	["green-800"] = "rgb(22 101 52)",
 	["green-900"] = "rgb(20 83 45)",
-	[" emerald-50"] = "rgb(236 253 245)",
+	["emerald-50"] = "rgb(236 253 245)",
 	["emerald-100"] = "rgb(209 250 229)",
 	["emerald-200"] = "rgb(167 243 208)",
 	["emerald-300"] = "rgb(110 231 183)",
@@ -228,86 +228,92 @@ M.TAILWIND_COLORS = {
 	["rose-900"] = "rgb(136 19 55)",
 }
 
+-- Tailwind color prefixes
 local PREFIXES = {
-	"bg%-",
-	"text%-",
-	"border%-",
-	"ring%-",
-	"ring%-offset%-",
-	"from%-",
-	"via%-",
-	"to%-",
-	"decoration%-",
-	"accent%-",
-	"caret%-",
-	"shadow%-",
+	"bg",
+	"text",
+	"border",
+	"ring",
+	"from",
+	"via",
+	"to",
+	"decoration",
+	"accent",
+	"caret",
+	"shadow",
+	"outline",
+	"divide",
+	"placeholder",
 }
 
--- Improved pattern: Matches full class in common contexts (e.g., class="...", 'bg-red-500', or standalone)
-local CONTEXT_PATTERNS = {
-	-- In double-quoted attributes
-	'class%s*=%s*"([^"]*%s+)?(%w+-%s*'
-		.. table.concat(PREFIXES, "|")
-		.. "([%w-]+))",
-	-- In single-quoted attributes
-	"class%s*=%s*'([^']*%s+)?(%w+-%s*"
-		.. table.concat(PREFIXES, "|")
-		.. "([%w-]+))",
-	-- Standalone or in space-separated lists (word-boundaried)
-	"(%f[%w]"
-		.. table.concat(PREFIXES, "|")
-		.. "([%w-]+)%f[^%w])",
-}
+-- Convert rgb string to hex
+local function rgb_to_hex(rgb_str)
+	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
+	if r then
+		r, g, b = tonumber(r), tonumber(g), tonumber(b)
+		return colors.rgb_to_hex(r, g, b)
+	end
+	return nil
+end
 
+-- Build pattern for matching Tailwind classes
+local function build_tailwind_pattern()
+	local prefix_pattern = "(" .. table.concat(PREFIXES, "|") .. ")"
+	-- Match: prefix-color-shade or prefix-color
+	return prefix_pattern .. "%-([%w]+%-?%d*)"
+end
+
+-- Parse Tailwind classes from line
 function M.parse_tailwind(line)
 	local results = {}
+
 	if not config.options.enable_tailwind then
 		return results
 	end
 
-	-- Collect all potential full matches
-	local full_matches = {}
-	for _, pattern in ipairs(CONTEXT_PATTERNS) do
-		for _ in line:gmatch(pattern) do
-			-- Extract the full class (prefix + color)
-			local full_class = line:match(pattern)
-			if full_class then
-				table.insert(full_matches, full_class)
-			end
-		end
-	end
+	-- Build a set of all found classes to avoid duplicates
+	local found_classes = {}
 
-	-- Now process each unique full match
-	for _, full_match in ipairs(full_matches) do
-		-- Extract color_name (e.g., "red-500" from "bg-red-500")
-		local _, _, _, color_name = full_match:match("(%w+-%s*)" .. table.concat(PREFIXES, "|") .. "([%w-]+)")
-		if color_name then
-			local rgb_str = M.TAILWIND_COLORS[color_name]
-			if rgb_str then
-				local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
-				if r then
-					r, g, b = tonumber(r), tonumber(g), tonumber(b)
-					local hex = colors.rgb_to_hex(r, g, b)
-					-- Find exact start/end positions for the FULL class
-					local start, finish = line:find(vim.pesc(full_match), 1, true)
-					if start then
-						table.insert(results, {
-							color = hex,
-							start = start - 1,
-							finish = finish,
-							format = "tailwind",
-							full_text = full_match, -- For debugging/logging
-						})
+	-- Pattern 1: Simple iteration through potential classes
+	-- Look for pattern: word-word-number or word-word
+	for full_match in line:gmatch("([%w%-]+)") do
+		-- Check if this looks like a Tailwind class
+		for _, prefix in ipairs(PREFIXES) do
+			if full_match:match("^" .. prefix .. "%-") then
+				-- Extract the color part (everything after prefix-)
+				local color_part = full_match:match("^" .. prefix .. "%-(.+)$")
+
+				if color_part and M.TAILWIND_COLORS[color_part] and not found_classes[full_match] then
+					local rgb_str = M.TAILWIND_COLORS[color_part]
+					local hex = rgb_to_hex(rgb_str)
+
+					if hex then
+						-- Find the exact position of this class in the line
+						local start, finish = line:find(vim.pesc(full_match), 1, true)
+
+						if start then
+							table.insert(results, {
+								color = hex,
+								start = start - 1,
+								finish = finish,
+								format = "tailwind",
+								class_name = full_match,
+							})
+
+							found_classes[full_match] = true
+						end
 					end
 				end
+				break -- Found a prefix match, no need to check others
 			end
 		end
 	end
 
-	-- Sort by start position to avoid overlaps
+	-- Sort by position
 	table.sort(results, function(a, b)
 		return a.start < b.start
 	end)
+
 	return results
 end
 
