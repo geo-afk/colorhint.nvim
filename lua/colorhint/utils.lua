@@ -8,7 +8,7 @@ M.levels = {
 	error = vim.log.levels.ERROR,
 }
 
--- Send notification
+-- Send notification (unchanged)
 function M.notify(msg, level)
 	if not config.options.enable_notifications then
 		return
@@ -20,7 +20,7 @@ function M.notify(msg, level)
 	vim.notify("[ColorHint] " .. msg, log_level)
 end
 
--- Deep merge tables
+-- Deep merge tables (unchanged)
 function M.deep_merge(t1, t2)
 	local result = vim.deepcopy(t1)
 	for k, v in pairs(t2) do
@@ -33,7 +33,7 @@ function M.deep_merge(t1, t2)
 	return result
 end
 
--- Check if value exists in table
+-- Check if value exists in table (unchanged)
 function M.has_value(tbl, val)
 	for _, v in ipairs(tbl) do
 		if v == val then
@@ -43,7 +43,7 @@ function M.has_value(tbl, val)
 	return false
 end
 
--- Debounce function
+-- Debounce function (unchanged)
 function M.debounce(fn, delay)
 	local timer = nil
 	return function(...)
@@ -60,6 +60,17 @@ function M.debounce(fn, delay)
 			end)
 		)
 	end
+end
+
+-- Borrowed: Table filter
+function M.filter(tbl, cb)
+	local result = {}
+	for _, v in ipairs(tbl) do
+		if cb(v) then
+			table.insert(result, v)
+		end
+	end
+	return result
 end
 
 return M

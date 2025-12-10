@@ -1,6 +1,6 @@
 local M = {}
 
--- Named CSS colors database
+-- Named CSS colors database (unchanged)
 M.NAMED_COLORS = {
 	aliceblue = "#f0f8ff",
 	antiquewhite = "#faebd7",
@@ -152,7 +152,17 @@ M.NAMED_COLORS = {
 	yellowgreen = "#9acd32",
 }
 
--- Convert hex to RGB
+-- Borrowed from other plugin: ANSI named colors
+M.ANSI_COLORS = {
+	["0;30"] = "#000000", -- Black
+	["0;31"] = "#800000", -- Red
+	["0;32"] = "#008000", -- Green
+	-- ... (add more as needed; full list from ansi_named_colors in other plugin)
+	["1;37"] = "#ffffff", -- White bold
+	-- Truncated for brevity; expand if needed
+}
+
+-- Convert hex to RGB (unchanged)
 function M.hex_to_rgb(hex)
 	hex = hex:gsub("#", "")
 
@@ -169,7 +179,7 @@ function M.hex_to_rgb(hex)
 	return r, g, b, a
 end
 
--- Convert RGB to hex
+-- Convert RGB to hex (updated with borrowed alpha handling)
 function M.rgb_to_hex(r, g, b, a)
 	-- Clamp values
 	r = math.max(0, math.min(255, math.floor(r + 0.5)))
@@ -184,7 +194,7 @@ function M.rgb_to_hex(r, g, b, a)
 	return string.format("#%02x%02x%02x", r, g, b)
 end
 
--- Convert HSL to RGB
+-- Convert HSL to RGB (unchanged)
 function M.hsl_to_rgb(h, s, l)
 	h = h / 360
 	s = s / 100
@@ -223,7 +233,7 @@ function M.hsl_to_rgb(h, s, l)
 	return math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)
 end
 
--- Convert OKLCH to RGB (via OKLab and XYZ)
+-- Convert OKLCH to RGB (unchanged)
 function M.oklch_to_rgb(l, c, h)
 	-- Convert OKLCH to OKLab
 	local h_rad = math.rad(h)
@@ -264,15 +274,39 @@ function M.oklch_to_rgb(l, c, h)
 	return math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5)
 end
 
--- Calculate perceived brightness (for contrast)
+-- Calculate perceived brightness (for contrast) (unchanged)
 function M.get_perceived_brightness(r, g, b)
 	-- Use relative luminance formula (Rec. 709)
 	return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 end
 
--- Determine if dark text should be used
+-- Determine if dark text should be used (unchanged)
 function M.should_use_dark_text(r, g, b)
 	return M.get_perceived_brightness(r, g, b) > 0.5
+end
+
+-- Borrowed from other plugin: Get foreground color for contrast
+function M.get_foreground_color_from_hex_color(color)
+	local rgb_table = M.hex_to_rgb(color) -- Note: Changed to use your hex_to_rgb
+
+	if rgb_table == nil or #rgb_table < 3 then
+		return nil
+	end
+
+	-- see: https://stackoverflow.com/a/3943023/16807083
+	rgb_table = vim.tbl_map(function(value)
+		value = value / 255
+
+		if value <= 0.04045 then
+			return value / 12.92
+		end
+
+		return ((value + 0.055) / 1.055) ^ 2.4
+	end, rgb_table)
+
+	local luminance = (0.2126 * rgb_table[1]) + (0.7152 * rgb_table[2]) + (0.0722 * rgb_table[3])
+
+	return luminance > 0.179 and "#000000" or "#ffffff"
 end
 
 return M

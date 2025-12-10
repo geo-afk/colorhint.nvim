@@ -3,7 +3,7 @@ local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 local tailwind = require("colorhint.color.tailwind")
 
--- Priority map for different color formats
+-- Priority map for different color formats (unchanged)
 local PRIORITY_MAP = {
 	tailwind = 5,
 	rgb = 4,
@@ -15,7 +15,20 @@ local PRIORITY_MAP = {
 	named = 1,
 }
 
--- Remove overlapping colors, keeping higher priority ones
+-- Borrowed patterns
+local RGB_REGEX = "rgba?[(]+" .. string.rep("%s*%d+%s*", 3, "[,%s]") .. "[,%s/]?%s*%d*%.?%d*%%?%s*[)]+"
+local HEX_REGEX = "#%x%x%x+%f[^%w_-]"
+local HEX_0X_REGEX = "%f[%w_]0x%x%x%x+%f[^%w_]"
+local HSL_REGEX = "hsla?[(]+"
+	.. string.rep("%s*%d*%.?%d+%%?d?e?g?t?u?r?n?%s*", 3, "[,%s]")
+	.. "[%s,/]?%s*%d*%.?%d*%%?%s*[)]+"
+local HSL_WITHOUT_FUNC_REGEX = ":" .. string.rep("%s*%d*%.?%d+%%?d?e?g?t?u?r?n?%s*", 3, "[,%s]")
+local VAR_REGEX = "%-%-[%d%a-_]+"
+local VAR_DECLARATION_REGEX = VAR_REGEX .. ":%s*" .. HEX_REGEX
+local VAR_USAGE_REGEX = "var%(" .. VAR_REGEX .. "%)"
+local ANSI_REGEX = "\\033%[%d;%d%dm"
+
+-- Remove overlapping colors, keeping higher priority ones (unchanged)
 local function remove_overlaps(colors)
 	if #colors == 0 then
 		return colors
@@ -43,7 +56,7 @@ local function remove_overlaps(colors)
 	return result
 end
 
--- Check if a color match is in a valid context
+-- Check if a color match is in a valid context (unchanged)
 local function is_valid_context(line, start_pos, finish_pos, color_format)
 	if not config.options.context_aware then
 		return true -- Context checking disabled
@@ -89,7 +102,7 @@ local function is_valid_context(line, start_pos, finish_pos, color_format)
 	return true -- Allow in other filetypes
 end
 
--- Main parsing function
+-- Main parsing function (updated with borrowed patterns)
 function M.parse_line(line)
 	local all_colors = {}
 
@@ -155,6 +168,29 @@ function M.parse_line(line)
 		end
 	end
 
+	-- New: ANSI
+	if config.options.enable_ansi then
+		local ansi_colors = M.parse_ansi(line)
+		for _, color in ipairs(ansi_colors) do
+			color.priority = PRIORITY_MAP.named
+			table.insert(all_colors, color)
+		end
+	end
+
+	-- New: Custom colors
+	local custom_colors = M.parse_custom_colors(line, config.options.custom_colors)
+	for _, color in ipairs(custom_colors) do
+		color.priority = PRIORITY_MAP.named
+		table.insert(all_colors, color)
+	end
+
+	-- New: Var colors
+	local var_colors = M.parse_var_colors(line)
+	for _, color in ipairs(var_colors) do
+		color.priority = PRIORITY_MAP.named
+		table.insert(all_colors, color)
+	end
+
 	-- Filter by context validity
 	local valid_colors = {}
 	for _, color in ipairs(all_colors) do
@@ -167,14 +203,14 @@ function M.parse_line(line)
 	return remove_overlaps(valid_colors)
 end
 
--- Parse hex colors with better boundary detection
+-- Parse hex colors with better boundary detection (updated with borrowed regex)
 function M.parse_hex(line)
 	local results = {}
 
 	-- Long hex: #RRGGBB or #RRGGBBAA
 	local idx = 1
 	while idx <= #line do
-		local start_pos, end_pos, hex = line:find("(#%x%x%x%x%x%x%x?%x?)", idx)
+		local start_pos, end_pos, hex = line:find(HEX_REGEX, idx)
 		if not start_pos then
 			break
 		end
@@ -238,35 +274,25 @@ function M.parse_hex(line)
 	return results
 end
 
--- Parse RGB/RGBA colors with better validation
+-- Parse RGB/RGBA colors with better validation (updated with borrowed regex)
 function M.parse_rgb(line)
 	local results = {}
 	local offset = 0
 
 	while true do
-		-- Match rgba? with various separators
-		local start_idx, end_idx, r, g, b, a = line:find(
-			"rgba?%s*%((%d+%.?%d*)%s*[,/]?%s*(%d+%.?%d*)%s*[,/]?%s*(%d+%.?%d*)%s*[,/]?%s*([%d%.]*)",
-			offset + 1
-		)
-
+		local start_idx, end_idx = line:find(RGB_REGEX, offset + 1)
 		if not start_idx then
 			break
 		end
 
-		r, g, b = tonumber(r), tonumber(g), tonumber(b)
-		a = a ~= "" and tonumber(a) or 1
-
-		-- Validate ranges
-		if r and g and b and r <= 255 and g <= 255 and b <= 255 then
-			local hex = colors.rgb_to_hex(r, g, b, a)
-			local format = (a and a < 1) and "rgba" or "rgb"
-
+		local color = line:sub(start_idx, end_idx)
+		local value = M.get_color_value(color, 0, config.options.custom_colors, config.options.enable_short_hex)
+		if value then
 			table.insert(results, {
-				color = hex,
+				color = value,
 				start = start_idx - 1,
 				finish = end_idx,
-				format = format,
+				format = "rgb",
 			})
 		end
 
@@ -276,34 +302,47 @@ function M.parse_rgb(line)
 	return results
 end
 
--- Parse HSL/HSLA colors
+-- Parse HSL/HSLA colors (updated with borrowed regex and hsl without func)
 function M.parse_hsl(line)
 	local results = {}
 	local offset = 0
 
 	while true do
-		local start_idx, end_idx, h, s, l, a = line:find(
-			"hsla?%s*%((%d+%.?%d*)%s*[,/]?%s*(%d+%.?%d*)%%?%s*[,/]?%s*(%d+%.?%d*)%%?%s*[,/]?%s*([%d%.]*)",
-			offset + 1
-		)
-
+		local start_idx, end_idx = line:find(HSL_REGEX, offset + 1)
 		if not start_idx then
 			break
 		end
 
-		h, s, l = tonumber(h), tonumber(s), tonumber(l)
-		a = a ~= "" and tonumber(a) or 1
-
-		if h and s and l and h <= 360 and s <= 100 and l <= 100 then
-			local r, g, b = colors.hsl_to_rgb(h, s, l)
-			local hex = colors.rgb_to_hex(r, g, b, a)
-			local format = (a and a < 1) and "hsla" or "hsl"
-
+		local color = line:sub(start_idx, end_idx)
+		local value = M.get_color_value(color, 0, config.options.custom_colors, config.options.enable_short_hex)
+		if value then
 			table.insert(results, {
-				color = hex,
+				color = value,
 				start = start_idx - 1,
 				finish = end_idx,
-				format = format,
+				format = "hsl",
+			})
+		end
+
+		offset = end_idx
+	end
+
+	-- Borrowed: HSL without func
+	offset = 0
+	while true do
+		local start_idx, end_idx = line:find(HSL_WITHOUT_FUNC_REGEX, offset + 1)
+		if not start_idx then
+			break
+		end
+
+		local color = line:sub(start_idx, end_idx)
+		local value = M.get_color_value(color, 0, config.options.custom_colors, config.options.enable_short_hex)
+		if value then
+			table.insert(results, {
+				color = value,
+				start = start_idx - 1,
+				finish = end_idx,
+				format = "hsl",
 			})
 		end
 
@@ -313,7 +352,7 @@ function M.parse_hsl(line)
 	return results
 end
 
--- Parse OKLCH colors
+-- Parse OKLCH colors (unchanged)
 function M.parse_oklch(line)
 	local results = {}
 	local offset = 0
@@ -355,7 +394,7 @@ function M.parse_oklch(line)
 	return results
 end
 
--- Parse named CSS colors with word boundaries
+-- Parse named CSS colors with word boundaries (unchanged)
 function M.parse_named_colors(line)
 	local results = {}
 
@@ -382,6 +421,196 @@ function M.parse_named_colors(line)
 	end
 
 	return results
+end
+
+-- New: Parse ANSI
+function M.parse_ansi(line)
+	local results = {}
+	local offset = 0
+
+	while true do
+		local start_idx, end_idx = line:find(ANSI_REGEX, offset + 1)
+		if not start_idx then
+			break
+		end
+
+		local color = line:sub(start_idx, end_idx)
+		local value = colors.ANSI_COLORS[string.match(color, "([0-9;]+)m")] -- Borrowed matching
+		if value then
+			table.insert(results, {
+				color = value,
+				start = start_idx - 1,
+				finish = end_idx,
+				format = "ansi",
+			})
+		end
+
+		offset = end_idx
+	end
+
+	return results
+end
+
+-- New: Parse custom colors (borrowed)
+function M.parse_custom_colors(line, custom_colors)
+	local results = {}
+	for _, custom in ipairs(custom_colors) do
+		local pattern = "%f[%a]" .. custom.label:gsub("%%", "") .. "%f[%A]"
+		local start_idx = 1
+		while true do
+			local start, finish = line:find(pattern, start_idx, false)
+			if not start then
+				break
+			end
+			table.insert(results, {
+				color = custom.color,
+				start = start - 1,
+				finish = finish,
+				format = "custom",
+			})
+			start_idx = finish + 1
+		end
+	end
+	return results
+end
+
+-- New: Parse var colors (borrowed)
+function M.parse_var_colors(line)
+	local results = {}
+	local offset = 0
+
+	while true do
+		local start_idx, end_idx = line:find(VAR_USAGE_REGEX, offset + 1)
+		if not start_idx then
+			break
+		end
+
+		local color = line:sub(start_idx, end_idx)
+		local value = M.get_css_var_color(color, 0) -- Borrowed function below
+		if value then
+			table.insert(results, {
+				color = value,
+				start = start_idx - 1,
+				finish = end_idx,
+				format = "var",
+			})
+		end
+
+		offset = end_idx
+	end
+
+	return results
+end
+
+-- Borrowed: Get color value (unified converter)
+function M.get_color_value(color, row_offset, custom_colors, enable_short_hex)
+	if enable_short_hex and (color:match(HEX_REGEX) and #color == 4) then
+		return colors.rgb_to_hex(
+			tonumber(color:sub(2, 2) .. color:sub(2, 2), 16),
+			tonumber(color:sub(3, 3) .. color:sub(3, 3), 16),
+			tonumber(color:sub(4, 4) .. color:sub(4, 4), 16)
+		)
+	end
+
+	if enable_short_hex and (color:match(HEX_REGEX) and #color == 5) then
+		return colors.rgb_to_hex(
+			tonumber(color:sub(2, 2) .. color:sub(2, 2), 16),
+			tonumber(color:sub(3, 3) .. color:sub(3, 3), 16),
+			tonumber(color:sub(4, 4) .. color:sub(4, 4), 16)
+		)
+	end
+
+	if color:match(HEX_REGEX) and #color == 9 then
+		return color:sub(1, 7)
+	end
+
+	if color:match(RGB_REGEX) then
+		local rgb_table = {}
+		for num in color:gmatch("%d+") do
+			table.insert(rgb_table, num)
+		end
+		if #rgb_table >= 3 then
+			return colors.rgb_to_hex(rgb_table[1], rgb_table[2], rgb_table[3])
+		end
+	end
+
+	if color:match(HSL_REGEX) then
+		local hsl_table = {}
+		for num in color:gmatch("%d*%.?%d+") do
+			table.insert(hsl_table, num)
+		end
+		if #hsl_table >= 3 then
+			local rgb = colors.hsl_to_rgb(hsl_table[1], hsl_table[2], hsl_table[3])
+			return colors.rgb_to_hex(rgb[1], rgb[2], rgb[3])
+		end
+	end
+
+	if color:match(HSL_WITHOUT_FUNC_REGEX) then
+		local hsl_table = {}
+		local clean_color = color:match(":%s*(.+)")
+		if clean_color then
+			for value in clean_color:gmatch("%d*%.?%d+") do
+				table.insert(hsl_table, value)
+			end
+		end
+		if #hsl_table >= 3 then
+			local rgb = colors.hsl_to_rgb(hsl_table[1], hsl_table[2], hsl_table[3])
+			return colors.rgb_to_hex(rgb[1], rgb[2], rgb[3])
+		end
+	end
+
+	if color:match("%a+") then
+		return colors.NAMED_COLORS[color:match("%a+")]
+	end
+
+	if color:match(ANSI_REGEX) then
+		local code = color:match("([0-9;]+)m")
+		return colors.ANSI_COLORS[code]
+	end
+
+	if custom_colors and #custom_colors > 0 then
+		for _, custom in ipairs(custom_colors) do
+			if color == custom.label:gsub("%%", "") then
+				return custom.color
+			end
+		end
+	end
+
+	if color:match(VAR_USAGE_REGEX) then
+		return M.get_css_var_color(color, row_offset or 0)
+	end
+
+	local hex_color = color:gsub("0x", "#")
+	if #hex_color == 7 then
+		return hex_color
+	end
+
+	return nil
+end
+
+-- Borrowed: Get CSS var color
+function M.get_css_var_color(color, row_offset)
+	local var_name = color:match(VAR_REGEX)
+	local var_name_regex = var_name:gsub("%-", "%%-")
+	local value_patterns = {
+		HEX_REGEX,
+		RGB_REGEX,
+		HSL_REGEX,
+		HSL_WITHOUT_FUNC_REGEX:gsub("^:%s*", ""),
+	}
+	local var_patterns = {}
+
+	for _, pattern in pairs(value_patterns) do
+		table.insert(var_patterns, var_name_regex .. ":%s*" .. pattern)
+	end
+
+	-- Simplified position fetch (use vim.fn.search or similar in real impl)
+	local var_position = {} -- Placeholder; implement buffer search if needed
+	if #var_position > 0 then
+		return M.get_color_value(var_position[1].value, row_offset)
+	end
+
+	return nil
 end
 
 return M

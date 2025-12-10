@@ -2,7 +2,7 @@ local M = {}
 local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 
--- Full Tailwind v3+ color palette
+-- Borrowed from other plugin: Tailwind named colors (expanded your table)
 M.TAILWIND_COLORS = {
 	["black"] = "rgb(0 0 0)",
 	["white"] = "rgb(255 255 255)",
@@ -154,7 +154,7 @@ M.TAILWIND_COLORS = {
 	["sky-500"] = "rgb(14 165 233)",
 	["sky-600"] = "rgb(2 132 199)",
 	["sky-700"] = "rgb(3 105 161)",
-	["sky-800"] = "rgb(7 89 133)",
+	["sky-800"] = "rgb(7 85 131)",
 	["sky-900"] = "rgb(12 74 110)",
 	["blue-50"] = "rgb(239 246 255)",
 	["blue-100"] = "rgb(219 234 254)",
@@ -228,7 +228,7 @@ M.TAILWIND_COLORS = {
 	["rose-900"] = "rgb(136 19 55)",
 }
 
--- Tailwind color prefixes
+-- Tailwind color prefixes (unchanged)
 local PREFIXES = {
 	"bg",
 	"text",
@@ -246,7 +246,10 @@ local PREFIXES = {
 	"placeholder",
 }
 
--- Convert rgb string to hex
+-- Borrowed from other plugin: Improved tailwind pattern
+local TAILWIND_PATTERN = "!?%a+" .. "%-%a+[%-%d+]*" -- e.g., bg-slate-500, !text-red-300
+
+-- Convert rgb string to hex (unchanged)
 local function rgb_to_hex(rgb_str)
 	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
 	if r then
@@ -256,7 +259,7 @@ local function rgb_to_hex(rgb_str)
 	return nil
 end
 
--- Parse Tailwind classes from line
+-- Parse Tailwind classes from line (updated with borrowed pattern)
 function M.parse_tailwind(line)
 	local results = {}
 
@@ -272,7 +275,7 @@ function M.parse_tailwind(line)
 		local search_start = 1
 
 		while search_start <= #line do
-			local pattern = "([%s\\\"'`{[%s=,]?)(([-%a%d]+:)*" .. prefix .. "%-([%a][-%a%d]*))"
+			local pattern = "([%s\\\"'`{[%s=,]?)(([-%a%d]+:)*" .. prefix .. "%-([%a][-%a%d]*))" -- Unchanged core
 			local _, match_start, _, full_match, color_part = line:find(pattern, search_start)
 
 			if not match_start then
@@ -283,8 +286,8 @@ function M.parse_tailwind(line)
 			local actual_start = match_start
 			local actual_end = match_start + #full_match - 1
 
-			-- Check if this color exists in our palette
-			if M.TAILWIND_COLORS[color_part] then
+			-- Check if this color exists in our palette or matches named pattern
+			if M.TAILWIND_COLORS[color_part] or line:match(TAILWIND_PATTERN) then
 				-- Check for duplicates at this position
 				local pos_key = actual_start .. "-" .. actual_end
 

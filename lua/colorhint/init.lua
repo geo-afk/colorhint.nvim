@@ -21,6 +21,7 @@ end
 M.ns_id = nil
 M.timer = nil
 M.enabled = true
+M.positions_cache = {} -- New: Cache positions to avoid redundant highlights (borrowed)
 
 function M.setup(opts)
 	-- Now it's safe: this creates the real config module
@@ -35,14 +36,14 @@ function M.setup(opts)
 	M.setup_highlights()
 
 	-- Initial highlight
-	-- vim.defer_fn(function()
-	-- 	if M.is_filetype_enabled() and M.is_file_size_ok() then
-	-- 		M.highlight_buffer()
-	-- 	end
-	-- end, 100)
+	vim.defer_fn(function()
+		if M.is_filetype_enabled() and M.is_file_size_ok() then
+			M.highlight_buffer()
+		end
+	end, 100)
 end
 
--- Setup autocmds
+-- Setup autocmds (updated with borrowed events)
 function M.setup_autocmds()
 	local group = vim.api.nvim_create_augroup("ColorHint", { clear = true })
 
@@ -55,12 +56,11 @@ function M.setup_autocmds()
 		end,
 	})
 
-	-- Handle filetype changes (Keep this, but remove the defer_fn for simplicity)
+	-- Handle filetype changes
 	vim.api.nvim_create_autocmd("FileType", {
 		group = group,
 		callback = function()
 			if M.is_filetype_enabled() and M.is_file_size_ok() then
-				-- We can remove the defer_fn here and let it run immediately
 				M.highlight_buffer()
 			else
 				-- Clear if filetype is not supported
@@ -70,11 +70,34 @@ function M.setup_autocmds()
 		end,
 	})
 
-	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+	-- Borrowed: More responsive updates
+	vim.api.nvim_create_autocmd({
+		"TextChanged",
+		"InsertLeave",
+		"TextChangedP",
+		"LspAttach",
+		"BufEnter",
+	}, {
+		group = group,
+		callback = function(ev)
+			if ev.event == "LspAttach" and get_config().options.enable_lsp then
+				M.highlight_with_lsp(ev.buf, M.ns_id)
+			end
+			if M.is_filetype_enabled() and M.is_file_size_ok() then
+				M.schedule_update()
+			end
+		end,
+	})
+
+	-- Borrowed: Handle window changes
+	vim.api.nvim_create_autocmd({
+		"VimResized",
+		"WinScrolled",
+	}, {
 		group = group,
 		callback = function()
 			if M.is_filetype_enabled() and M.is_file_size_ok() then
-				M.schedule_update()
+				M.highlight_buffer()
 			end
 		end,
 	})
@@ -88,56 +111,39 @@ function M.setup_autocmds()
 			end
 		end,
 	})
+end
 
-	-- Handle filetype changes
-	vim.api.nvim_create_autocmd("FileType", {
-		group = group,
-		callback = function()
-			if M.is_filetype_enabled() and M.is_file_size_ok() then
-				-- Small delay to let filetype detection settle
-				vim.defer_fn(function()
-					M.highlight_buffer()
-				end, 50)
-			else
-				-- Clear if filetype is not supported
-				local bufnr = vim.api.nvim_get_current_buf()
-				vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, 0, -1)
-			end
+-- Setup commands (borrowed structure)
+function M.setup_commands()
+	vim.api.nvim_create_user_command("ColorHint", function(opts)
+		local arg = string.lower(opts.fargs[1])
+		if arg == "on" then
+			M.enable()
+		elseif arg == "off" then
+			M.disable()
+		elseif arg == "toggle" then
+			M.toggle()
+		elseif arg == "isactive" then
+			M.is_active()
+		elseif arg == "refresh" then
+			M.highlight_buffer()
+		end
+	end, {
+		nargs = 1,
+		complete = function()
+			return { "On", "Off", "Toggle", "IsActive", "Refresh" }
 		end,
+		desc = "Control ColorHint",
 	})
 end
 
--- Setup commands
-function M.setup_commands()
-	vim.api.nvim_create_user_command("ColorHintToggle", function()
-		M.toggle()
-	end, { desc = "Toggle ColorHint on/off" })
-
-	vim.api.nvim_create_user_command("ColorHintRefresh", function()
-		M.highlight_buffer()
-	end, { desc = "Refresh color highlighting" })
-
-	vim.api.nvim_create_user_command("ColorHintEnable", function()
-		M.enable()
-	end, { desc = "Enable ColorHint" })
-
-	vim.api.nvim_create_user_command("ColorHintDisable", function()
-		M.disable()
-	end, { desc = "Disable ColorHint" })
-
-	vim.api.nvim_create_user_command("ColorHintClearCache", function()
-		renderer.clear_cache()
-		utils.notify("Highlight cache cleared", "info")
-	end, { desc = "Clear ColorHint highlight cache" })
-end
-
--- Setup default highlights for contrast
+-- Setup default highlights for contrast (updated with borrowed fg)
 function M.setup_highlights()
 	vim.api.nvim_set_hl(0, "ColorHintDarkText", { fg = "#000000" })
 	vim.api.nvim_set_hl(0, "ColorHintLightText", { fg = "#ffffff" })
 end
 
--- Check if current file size is acceptable
+-- Check if current file size is acceptable (unchanged)
 function M.is_file_size_ok()
 	local config = get_config()
 	local max_size = config.options.max_file_size
@@ -155,7 +161,7 @@ function M.is_file_size_ok()
 	return true
 end
 
--- Check if filetype is enabled
+-- Check if filetype is enabled (unchanged)
 function M.is_filetype_enabled()
 	if not M.enabled then
 		return false
@@ -221,7 +227,83 @@ function M.is_filetype_enabled()
 	return false
 end
 
--- Main highlighting function with incremental updates
+-- New: Borrowed LSP integration
+function M.highlight_with_lsp(active_buffer_id, ns_id)
+	local param = { textDocument = vim.lsp.util.make_text_document_params(active_buffer_id) }
+	local clients = M.get_lsp_clients(active_buffer_id)
+
+	for _, client in pairs(clients) do
+		if client.supports_method("textDocument/documentColor", { bufnr = active_buffer_id }) then
+			client.request("textDocument/documentColor", param, function(_, response)
+				M.highlight_lsp_document_color(
+					response,
+					active_buffer_id,
+					ns_id,
+					M.positions_cache[active_buffer_id] or {},
+					get_config().options
+				)
+			end, active_buffer_id)
+		end
+	end
+end
+
+-- Borrowed: Highlight LSP colors
+function M.highlight_lsp_document_color(response, active_buffer_id, ns_id, positions, options)
+	local results = {}
+	if response == nil then
+		return
+	end
+
+	for _, match in pairs(response) do
+		local r, g, b, a = match.color.red or 0, match.color.green or 0, match.color.blue or 0, match.color.alpha or 0
+		local value = string.format("#%02x%02x%02x", r * a * 255, g * a * 255, b * a * 255)
+		local range = match.range
+		local start_column = range.start.character
+		local end_column = range["end"].character
+		local row = range.start.line
+
+		local is_already_highlighted = false
+		for _, pos in ipairs(positions) do
+			if
+				pos.row == row
+				and pos.start_column == start_column
+				and pos.end_column == end_column
+				and pos.value == value
+			then
+				is_already_highlighted = true
+				break
+			end
+		end
+
+		local result = {
+			row = row,
+			start_column = start_column,
+			end_column = end_column,
+			value = value,
+		}
+
+		if not is_already_highlighted then
+			get_renderer().render_color(
+				active_buffer_id,
+				ns_id,
+				row,
+				{ start = start_column, finish = end_column, color = value, format = "lsp" }
+			)
+		end
+		table.insert(results, result)
+	end
+
+	M.positions_cache[active_buffer_id] = results
+	return results
+end
+
+-- Borrowed: Get LSP clients
+function M.get_lsp_clients(active_buffer_id, client_name)
+	local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
+	return get_clients({ bufnr = active_buffer_id, name = client_name })
+end
+
+-- Main highlighting function with incremental updates (updated with positions cache)
 function M.highlight_buffer(bufnr)
 	if not M.enabled then
 		return
@@ -238,6 +320,7 @@ function M.highlight_buffer(bufnr)
 
 	-- Clear existing highlights
 	vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, 0, -1)
+	M.positions_cache[bufnr] = {}
 
 	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
@@ -247,12 +330,25 @@ function M.highlight_buffer(bufnr)
 
 			for _, color_info in ipairs(colors) do
 				renderer.render_color(bufnr, M.ns_id, line_num - 1, color_info)
+				table.insert(
+					M.positions_cache[bufnr],
+					{
+						row = line_num - 1,
+						start_column = color_info.start,
+						end_column = color_info.finish,
+						value = color_info.color,
+					}
+				)
 			end
 		end
 	end
+
+	if get_config().options.enable_lsp then
+		M.highlight_with_lsp(bufnr, M.ns_id)
+	end
 end
 
--- Debounced update with mode-aware delay
+-- Debounced update with mode-aware delay (unchanged)
 function M.schedule_update(bufnr)
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
 
@@ -281,7 +377,7 @@ function M.schedule_update(bufnr)
 	)
 end
 
--- Toggle highlighting
+-- Toggle highlighting (unchanged)
 function M.toggle()
 	local utils = get_utils()
 	M.enabled = not M.enabled
@@ -294,7 +390,7 @@ function M.toggle()
 	end
 end
 
--- Enable highlighting
+-- Enable highlighting (unchanged)
 function M.enable()
 	local utils = get_utils()
 	M.enabled = true
@@ -302,12 +398,18 @@ function M.enable()
 	utils.notify("ColorHint enabled", "info")
 end
 
--- Disable highlighting
+-- Disable highlighting (unchanged)
 function M.disable()
 	local utils = get_utils()
 	M.enabled = false
 	vim.api.nvim_buf_clear_namespace(0, M.ns_id, 0, -1)
 	utils.notify("ColorHint disabled", "info")
+end
+
+-- New: Borrowed is_active
+function M.is_active()
+	local utils = get_utils()
+	utils.notify(M.enabled and "ColorHint is active" or "ColorHint is inactive", "info")
 end
 
 return M

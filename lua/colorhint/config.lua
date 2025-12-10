@@ -22,6 +22,13 @@ M.options = {
 	enable_oklch = true,
 	enable_named_colors = false,
 	enable_tailwind = true,
+	enable_ansi = false, -- New: ANSI support
+
+	-- LSP integration (new, default false)
+	enable_lsp = false,
+
+	-- Custom colors (borrowed concept)
+	custom_colors = {}, -- e.g., {{label = "custom%-white", color = "#FFFFFF"}}
 
 	-- Context awareness
 	context_aware = true,
@@ -61,7 +68,6 @@ M.options = {
 		typescriptreact = { enable_named_colors = false, context_aware = true },
 
 		-- Enable named only in styling contexts (CSS and similar)
-		-- html = { enable_named_colors = false, context_aware = true },
 		html = { enable_named_colors = true, context_aware = true },
 		css = { enable_named_colors = true, context_aware = true },
 		scss = { enable_named_colors = true, context_aware = true },

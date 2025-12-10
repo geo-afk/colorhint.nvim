@@ -5,7 +5,7 @@ local colors = require("colorhint.colors")
 -- Cache for highlight groups
 M.hl_cache = {}
 
--- Create or get cached highlight group
+-- Create or get cached highlight group (updated with borrowed fg)
 function M.get_highlight_group(hex)
 	local cache_key = hex:gsub("#", ""):upper()
 
@@ -25,8 +25,7 @@ function M.get_highlight_group(hex)
 	end
 
 	local bg_hex = colors.rgb_to_hex(r, g, b)
-	local use_dark = colors.should_use_dark_text(r, g, b)
-	local fg_hex = use_dark and "#000000" or "#ffffff"
+	local fg_hex = colors.get_foreground_color_from_hex_color(bg_hex) -- Borrowed
 
 	local hl_names = {
 		fg = "ColorHint_" .. cache_key .. "_Fg",
@@ -43,7 +42,7 @@ function M.get_highlight_group(hex)
 	return hl_names
 end
 
--- Render a single color in the buffer
+-- Render a single color in the buffer (updated to handle new formats like lsp/ansi)
 function M.render_color(bufnr, ns_id, row, color_info)
 	local hl_groups = M.get_highlight_group(color_info.color)
 	local col_start = color_info.start
@@ -154,7 +153,7 @@ function M.render_color(bufnr, ns_id, row, color_info)
 	end
 end
 
--- Clear all cached highlight groups
+-- Clear all cached highlight groups (unchanged)
 function M.clear_cache()
 	M.hl_cache = {}
 end
