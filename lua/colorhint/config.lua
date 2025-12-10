@@ -4,7 +4,6 @@ M.options = {
 	enabled = true,
 	render = "virtual", -- "background", "foreground", "virtual", "both", "underline"
 
-	-- NEW: Allow background for Tailwind classes
 	tailwind_render_background = true, -- Set to false if you want only virtual symbols for Tailwind
 
 	-- Virtual text symbol options

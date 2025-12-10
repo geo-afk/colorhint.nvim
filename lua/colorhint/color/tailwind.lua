@@ -275,7 +275,8 @@ function M.parse_tailwind(line)
 			-- Pattern: prefix-colorname-shade or prefix-colorname
 			-- Must be preceded by word boundary (space, quote, or start of line)
 			-- Must be followed by word boundary (space, quote, or end of line)
-			local pattern = "([%s\"'`{[%s=,]?)(" .. prefix .. "%-([%a]+%-?%d*))"
+			-- FIX: Changed the color_part capture group to be more permissive of hyphens
+			local pattern = "([%s\"'`{[%s=,]?)(" .. prefix .. "%-([%a][-%a%d]*))"
 			local boundary_start, match_start, boundary, full_match, color_part = line:find(pattern, search_start)
 
 			if not match_start then
