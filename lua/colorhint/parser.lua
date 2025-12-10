@@ -54,6 +54,12 @@ local function is_valid_context(line, start_pos, finish_pos, color_format)
 	-- Get text before the match
 	local before = line:sub(1, start_pos)
 
+	if color_format == "named" then
+		if before:match("%[%s*[\"']?$") or before:match("%{%s*[\"']?$") or before:match(":%s*$") then
+			return false -- Likely a key, not a value
+		end
+	end
+
 	-- Check for different contexts based on filetype
 	if ft == "html" or ft == "vue" or ft == "svelte" or ft == "astro" then
 		-- In HTML-like files, colors should be in attributes or style

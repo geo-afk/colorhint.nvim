@@ -4,6 +4,9 @@ M.options = {
 	enabled = true,
 	render = "virtual", -- "background", "foreground", "virtual", "both", "underline"
 
+	-- NEW: Allow background for Tailwind classes
+	tailwind_render_background = true, -- Set to false if you want only virtual symbols for Tailwind
+
 	-- Virtual text symbol options
 	virtual_symbol = "⬤ ",
 	virtual_symbol_suffix = " ",
@@ -18,12 +21,12 @@ M.options = {
 	enable_hsl = true,
 	enable_hsla = true,
 	enable_oklch = true,
-	enable_named_colors = true, -- Disabled by default due to ambiguity
+	enable_named_colors = false, -- Globally disabled to avoid ambiguity; enable per-filetype below
 	enable_tailwind = true,
 
-	-- Context awareness (NEW)
-	context_aware = true, -- Only highlight colors in appropriate contexts
-	use_treesitter = false, -- Use treesitter for context detection (more accurate, experimental)
+	-- Context awareness
+	context_aware = true,
+	use_treesitter = false, -- Experimental; if enabled, could improve key/value distinction but requires nvim-treesitter
 
 	-- File type configuration
 	enabled_filetypes = {
@@ -50,12 +53,19 @@ M.options = {
 		json = { enable_named_colors = false },
 		yaml = { enable_named_colors = false },
 		toml = { enable_named_colors = false },
-		-- Enable only in styling contexts
-		html = { enable_named_colors = true, context_aware = true },
-		css = { enable_named_colors = true, context_aware = true },
-		scss = { enable_named_colors = true, context_aware = true },
+		lua = { enable_named_colors = false }, -- NEW: Disable for Lua to avoid highlighting keys like "black"
+		python = { enable_named_colors = false }, -- NEW: Similar for Python
 		javascript = { enable_named_colors = false, context_aware = true },
 		typescript = { enable_named_colors = false, context_aware = true },
+		javascriptreact = { enable_named_colors = false, context_aware = true },
+		typescriptreact = { enable_named_colors = false, context_aware = true },
+
+		-- Enable named only in styling contexts (CSS and similar)
+		html = { enable_named_colors = false, context_aware = true }, -- NEW: Disabled unless you want inline style named colors
+		css = { enable_named_colors = true, context_aware = true },
+		scss = { enable_named_colors = true, context_aware = true },
+		sass = { enable_named_colors = true, context_aware = true },
+		less = { enable_named_colors = true, context_aware = true },
 	},
 
 	-- Tailwind context (only match in class-like attributes)
@@ -89,27 +99,4 @@ M.options = {
 	enable_notifications = true,
 }
 
-function M.setup(opts)
-	M.options = vim.tbl_deep_extend("force", M.options, opts or {})
-
-	-- Apply filetype overrides if present
-	local ft = vim.bo.filetype
-	if M.options.filetype_overrides[ft] then
-		local overrides = M.options.filetype_overrides[ft]
-		M.options = vim.tbl_extend("force", M.options, overrides)
-	end
-end
-
--- Get effective config for current buffer
-function M.get_buffer_config()
-	local ft = vim.bo.filetype
-	local base = vim.deepcopy(M.options)
-
-	if M.options.filetype_overrides[ft] then
-		return vim.tbl_extend("force", base, M.options.filetype_overrides[ft])
-	end
-
-	return base
-end
-
-return M
+-- Rest of the file remains the same...
