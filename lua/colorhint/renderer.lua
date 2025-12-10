@@ -50,84 +50,97 @@ function M.render_color(bufnr, ns_id, row, color_info)
 	local col_end = color_info.finish
 	local render_mode = config.options.render
 
-	-- In render_color function, add Tailwind-specific positioning
-	if color_info.format == "tailwind" and render_mode == "virtual" or render_mode == "both" then
-		local symbol = config.options.virtual_symbol or "⬤ "
-		local prefix = config.options.virtual_symbol_prefix or " " -- Space before full class
-		local virt_col = color_info.start -- Start BEFORE the class
-		local virt_text = {
-			{ prefix, "Normal" },
-			{ symbol, hl_groups.virtual },
-			{ config.options.virtual_symbol_suffix or " ", "Normal" },
-		}
-		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, virt_col, {
-			virt_text = virt_text,
-			virt_text_pos = "inline",
-			priority = 101,
-		})
-	end
-
-	-- Background / Foreground highlighting
-	if render_mode == "background" or render_mode == "both" then
-		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
-			end_col = col_end,
-			hl_group = hl_groups.bg,
-			priority = 100,
-		})
-	end
-
-	if render_mode == "foreground" then
-		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
-			end_col = col_end,
-			hl_group = hl_groups.fg,
-			priority = 100,
-		})
-	end
-
-	-- Underline mode (Neovim 0.10+ supports colored underlines)
-	if render_mode == "underline" then
-		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
-			end_col = col_end,
-			underline = true,
-			special = color_info.color, -- colored underline
-			priority = 100,
-		})
-	end
-
-	-- Virtual text preview (before / after / both)
-	if render_mode == "virtual" or render_mode == "both" then
-		local symbol = config.options.virtual_symbol or "■"
-		local position = config.options.virtual_symbol_position or "before"
-		local suffix = config.options.virtual_symbol_suffix or " "
+	-- Special handling for Tailwind classes - place symbol BEFORE the class
+	if color_info.format == "tailwind" and (render_mode == "virtual" or render_mode == "both") then
+		local symbol = config.options.virtual_symbol or "■ "
 		local prefix = config.options.virtual_symbol_prefix or " "
 
-		local virt_text = {}
-		local virt_col = col_start
+		-- Place the colored square BEFORE the tailwind class
+		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
+			virt_text = {
+				{ prefix, "Normal" },
+				{ symbol, hl_groups.virtual },
+			},
+			virt_text_pos = "inline",
+			priority = 102,
+		})
 
-		if position == "before" or position == "both" then
-			table.insert(virt_text, { symbol, hl_groups.virtual })
-			table.insert(virt_text, { suffix, "Normal" })
+		-- Don't add the "after" symbol for Tailwind classes
+		-- They should only have the indicator before them
+	else
+		-- Background / Foreground highlighting for non-Tailwind colors
+		if render_mode == "background" or render_mode == "both" then
+			vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
+				end_col = col_end,
+				hl_group = hl_groups.bg,
+				priority = 100,
+			})
 		end
 
-		if position == "after" or position == "both" then
-			if position == "both" then
-				-- For "both", we place two symbols: one before, one after
-				-- So we only add the "after" part here
-				virt_col = col_end
-				virt_text = { { prefix, "Normal" }, { symbol, hl_groups.virtual } }
-			else
-				-- Only "after"
-				virt_text = { { prefix, "Normal" }, { symbol, hl_groups.virtual } }
-				virt_col = col_end
+		if render_mode == "foreground" then
+			vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
+				end_col = col_end,
+				hl_group = hl_groups.fg,
+				priority = 100,
+			})
+		end
+
+		-- Underline mode (Neovim 0.10+ supports colored underlines)
+		if render_mode == "underline" then
+			vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
+				end_col = col_end,
+				underline = true,
+				special = color_info.color,
+				priority = 100,
+			})
+		end
+
+		-- Virtual text preview (before / after / both) for non-Tailwind
+		if render_mode == "virtual" or render_mode == "both" then
+			local symbol = config.options.virtual_symbol or "■ "
+			local position = config.options.virtual_symbol_position or "before"
+			local suffix = config.options.virtual_symbol_suffix or " "
+			local prefix = config.options.virtual_symbol_prefix or " "
+
+			if position == "before" then
+				vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
+					virt_text = {
+						{ symbol, hl_groups.virtual },
+						{ suffix, "Normal" },
+					},
+					virt_text_pos = "inline",
+					priority = 101,
+				})
+			elseif position == "after" then
+				vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_end, {
+					virt_text = {
+						{ prefix, "Normal" },
+						{ symbol, hl_groups.virtual },
+					},
+					virt_text_pos = "inline",
+					priority = 101,
+				})
+			elseif position == "both" then
+				-- Before
+				vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_start, {
+					virt_text = {
+						{ symbol, hl_groups.virtual },
+						{ suffix, "Normal" },
+					},
+					virt_text_pos = "inline",
+					priority = 101,
+				})
+				-- After
+				vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, col_end, {
+					virt_text = {
+						{ prefix, "Normal" },
+						{ symbol, hl_groups.virtual },
+					},
+					virt_text_pos = "inline",
+					priority = 101,
+				})
 			end
 		end
-
-		-- Single extmark for virtual text
-		vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, virt_col, {
-			virt_text = virt_text,
-			virt_text_pos = "inline",
-			priority = 101, -- Slightly above background
-		})
 	end
 end
 

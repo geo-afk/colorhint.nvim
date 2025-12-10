@@ -256,13 +256,6 @@ local function rgb_to_hex(rgb_str)
 	return nil
 end
 
--- Build pattern for matching Tailwind classes
-local function build_tailwind_pattern()
-	local prefix_pattern = "(" .. table.concat(PREFIXES, "|") .. ")"
-	-- Match: prefix-color-shade or prefix-color
-	return prefix_pattern .. "%-([%w]+%-?%d*)"
-end
-
 -- Parse Tailwind classes from line
 function M.parse_tailwind(line)
 	local results = {}
@@ -271,41 +264,53 @@ function M.parse_tailwind(line)
 		return results
 	end
 
-	-- Build a set of all found classes to avoid duplicates
-	local found_classes = {}
+	-- Track found positions to avoid duplicates
+	local found_positions = {}
 
-	-- Pattern 1: Simple iteration through potential classes
-	-- Look for pattern: word-word-number or word-word
-	for full_match in line:gmatch("([%w%-]+)") do
-		-- Check if this looks like a Tailwind class
-		for _, prefix in ipairs(PREFIXES) do
-			if full_match:match("^" .. prefix .. "%-") then
-				-- Extract the color part (everything after prefix-)
-				local color_part = full_match:match("^" .. prefix .. "%-(.+)$")
+	-- For each prefix, search for all occurrences
+	for _, prefix in ipairs(PREFIXES) do
+		local search_start = 1
 
-				if color_part and M.TAILWIND_COLORS[color_part] and not found_classes[full_match] then
+		while search_start <= #line do
+			-- Pattern: prefix-colorname-shade or prefix-colorname
+			-- Must be preceded by word boundary (space, quote, or start of line)
+			-- Must be followed by word boundary (space, quote, or end of line)
+			local pattern = "([%s\"'`{]?)(" .. prefix .. "%-([%a]+%-?%d*))"
+			local boundary_start, match_start, boundary, full_match, color_part = line:find(pattern, search_start)
+
+			if not match_start then
+				break
+			end
+
+			-- Adjust positions: match_start points to the actual class start (after boundary)
+			local actual_start = match_start
+			local actual_end = match_start + #full_match - 1
+
+			-- Check if this color exists in our palette
+			if M.TAILWIND_COLORS[color_part] then
+				-- Check for duplicates at this position
+				local pos_key = actual_start .. "-" .. actual_end
+
+				if not found_positions[pos_key] then
 					local rgb_str = M.TAILWIND_COLORS[color_part]
 					local hex = rgb_to_hex(rgb_str)
 
 					if hex then
-						-- Find the exact position of this class in the line
-						local start, finish = line:find(vim.pesc(full_match), 1, true)
+						table.insert(results, {
+							color = hex,
+							start = actual_start - 1, -- Convert to 0-indexed
+							finish = actual_end,
+							format = "tailwind",
+							class_name = full_match,
+						})
 
-						if start then
-							table.insert(results, {
-								color = hex,
-								start = start - 1,
-								finish = finish,
-								format = "tailwind",
-								class_name = full_match,
-							})
-
-							found_classes[full_match] = true
-						end
+						found_positions[pos_key] = true
 					end
 				end
-				break -- Found a prefix match, no need to check others
 			end
+
+			-- Move past this match
+			search_start = actual_end + 1
 		end
 	end
 
