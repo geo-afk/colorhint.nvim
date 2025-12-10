@@ -4,7 +4,7 @@ M.options = {
 	enabled = true,
 	render = "virtual", -- "background", "foreground", "virtual", "both", "underline"
 
-	tailwind_render_background = true, -- Set to false if you want only virtual symbols for Tailwind
+	tailwind_render_background = true,
 
 	-- Virtual text symbol options
 	virtual_symbol = "⬤ ",
@@ -20,7 +20,7 @@ M.options = {
 	enable_hsl = true,
 	enable_hsla = true,
 	enable_oklch = true,
-	enable_named_colors = false, -- Globally disabled to avoid ambiguity; enable per-filetype below
+	enable_named_colors = false,
 	enable_tailwind = true,
 
 	-- Context awareness

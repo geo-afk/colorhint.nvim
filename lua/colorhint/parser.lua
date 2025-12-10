@@ -55,7 +55,7 @@ local function is_valid_context(line, start_pos, finish_pos, color_format)
 	local before = line:sub(1, start_pos)
 
 	if color_format == "named" then
-		if before:match("%[%s*[\"']?$$ ") or before:match("%{%s*[\"']? $$") then -- Removed the colon pattern here
+		if before:match("%[%s*[\"']?$") or before:match("%{%s*[\"']?$") then
 			return false -- Likely a key, not a value
 		end
 
@@ -67,13 +67,33 @@ local function is_valid_context(line, start_pos, finish_pos, color_format)
 
 	-- Check for different contexts based on filetype
 	if ft == "html" or ft == "vue" or ft == "svelte" or ft == "astro" then
-		-- In HTML-like files, colors should be in attributes or style
-		local in_attribute = before:match("[a-zA-Z%-]+%s*=%s*[\"']$") ~= nil
-		local in_style = before:match("style%s*=%s*[\"'][^\"']*$") ~= nil
-		return in_attribute or in_style
+		-- FIXED: More lenient HTML attribute detection
+		-- Check if we're inside an attribute value by looking for quotes
+		local quote_count_single = 0
+		local quote_count_double = 0
+
+		-- Count quotes before the match position
+		for i = 1, start_pos do
+			local char = line:sub(i, i)
+			if char == "'" then
+				quote_count_single = quote_count_single + 1
+			elseif char == '"' then
+				quote_count_double = quote_count_double + 1
+			end
+		end
+
+		-- If we have an odd number of quotes, we're inside a string/attribute
+		local in_single_quote = quote_count_single % 2 == 1
+		local in_double_quote = quote_count_double % 2 == 1
+		local in_attribute = in_single_quote or in_double_quote
+
+		-- Also check for inline style or common HTML scenarios
+		local has_attribute_marker = before:match("[a-zA-Z%-]+%s*=%s*[\"']") ~= nil
+
+		return in_attribute or has_attribute_marker
 	elseif ft == "css" or ft == "scss" or ft == "sass" or ft == "less" then
 		-- In CSS, colors should be after property colon or in function
-		local in_css_value = before:match("%:%s*$") ~= nil
+		local in_css_value = before:match("%:%s*") ~= nil
 		local in_function = before:match("%(%s*[^%)]*$") ~= nil
 		return in_css_value or in_function or color_format == "named"
 	elseif ft == "javascript" or ft == "typescript" or ft == "javascriptreact" or ft == "typescriptreact" then
