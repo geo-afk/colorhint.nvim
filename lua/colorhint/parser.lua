@@ -55,8 +55,13 @@ local function is_valid_context(line, start_pos, finish_pos, color_format)
 	local before = line:sub(1, start_pos)
 
 	if color_format == "named" then
-		if before:match("%[%s*[\"']?$") or before:match("%{%s*[\"']?$") or before:match(":%s*$") then
+		if before:match("%[%s*[\"']?$$ ") or before:match("%{%s*[\"']? $$") then -- Removed the colon pattern here
 			return false -- Likely a key, not a value
+		end
+
+		local after = line:sub(finish_pos + 1)
+		if after:match("^%s*:") then
+			return false -- Likely a key if followed by colon
 		end
 	end
 

@@ -60,7 +60,8 @@ M.options = {
 		typescriptreact = { enable_named_colors = false, context_aware = true },
 
 		-- Enable named only in styling contexts (CSS and similar)
-		html = { enable_named_colors = false, context_aware = true }, -- NEW: Disabled unless you want inline style named colors
+		-- html = { enable_named_colors = false, context_aware = true },
+		html = { enable_named_colors = true, context_aware = true },
 		css = { enable_named_colors = true, context_aware = true },
 		scss = { enable_named_colors = true, context_aware = true },
 		sass = { enable_named_colors = true, context_aware = true },
