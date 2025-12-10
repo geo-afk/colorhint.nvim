@@ -152,21 +152,30 @@ M.NAMED_COLORS = {
 	yellowgreen = "#9acd32",
 }
 
--- Borrowed from other plugin: ANSI named colors
+-- ANSI colors (optional – you can extend this map)
 M.ANSI_COLORS = {
-	["0;30"] = "#000000", -- Black
-	["0;31"] = "#800000", -- Red
-	["0;32"] = "#008000", -- Green
-	-- ... (add more as needed; full list from ansi_named_colors in other plugin)
-	["1;37"] = "#ffffff", -- White bold
-	-- Truncated for brevity; expand if needed
+	["0;30"] = "#000000",
+	["1;30"] = "#000000",
+	["0;31"] = "#cd0000",
+	["1;31"] = "#ff0000",
+	["0;32"] = "#00cd00",
+	["1;32"] = "#00ff00",
+	["0;33"] = "#cdcd00",
+	["1;33"] = "#ffff00",
+	["0;34"] = "#0000f0fcd",
+	["1;34"] = "#1e90ff",
+	["0;35"] = "#cd00cd",
+	["1;35"] = "#ff00ff",
+	["0;36"] = "#00cdcd",
+	["1;36"] = "#00ffff",
+	["0;37"] = "#e5e5e5",
+	["1;37"] = "#ffffff",
 }
 
--- Convert hex to RGB (unchanged)
+-- Convert hex → r,g,b[,a] (returns four values)
 function M.hex_to_rgb(hex)
 	hex = hex:gsub("#", "")
 
-	-- Expand short hex
 	if #hex == 3 then
 		hex = hex:gsub("(%x)", "%1%1")
 	end
@@ -174,27 +183,25 @@ function M.hex_to_rgb(hex)
 	local r = tonumber(hex:sub(1, 2), 16) or 0
 	local g = tonumber(hex:sub(3, 4), 16) or 0
 	local b = tonumber(hex:sub(5, 6), 16) or 0
-	local a = #hex == 8 and (tonumber(hex:sub(7, 8), 16) or 255) or 255
+	local a = (#hex == 8) and (tonumber(hex:sub(7, 8), 16) or 255) or 255
 
 	return r, g, b, a
 end
 
--- Convert RGB to hex (updated with borrowed alpha handling)
+-- Convert RGB → hex (a is optional)
 function M.rgb_to_hex(r, g, b, a)
-	-- Clamp values
 	r = math.max(0, math.min(255, math.floor(r + 0.5)))
 	g = math.max(0, math.min(255, math.floor(g + 0.5)))
 	b = math.max(0, math.min(255, math.floor(b + 0.5)))
 
-	if a and a < 1 then
-		a = math.max(0, math.min(255, math.floor(a * 255 + 0.5)))
+	if a and a < 255 then
+		a = math.max(0, math.min(255, math.floor(a + 0.5)))
 		return string.format("#%02x%02x%02x%02x", r, g, b, a)
 	end
-
 	return string.format("#%02x%02x%02x", r, g, b)
 end
 
--- Convert HSL to RGB (unchanged)
+-- HSL → RGB (unchanged)
 function M.hsl_to_rgb(h, s, l)
 	h = h / 360
 	s = s / 100
@@ -233,40 +240,32 @@ function M.hsl_to_rgb(h, s, l)
 	return math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)
 end
 
--- Convert OKLCH to RGB (unchanged)
+-- OKLCH → RGB (unchanged)
 function M.oklch_to_rgb(l, c, h)
-	-- Convert OKLCH to OKLab
 	local h_rad = math.rad(h)
 	local a = c * math.cos(h_rad)
 	local b = c * math.sin(h_rad)
 
-	-- OKLab to linear RGB (D65 illuminant)
 	local l_ = l + 0.3963377774 * a + 0.2158037573 * b
 	local m_ = l - 0.1055613458 * a - 0.0638541728 * b
 	local s_ = l - 0.0894841775 * a - 1.2914855480 * b
 
-	local l_cubed = l_ * l_ * l_
-	local m_cubed = m_ * m_ * m_
-	local s_cubed = s_ * s_ * s_
+	local l_cubed = l_ ^ 3
+	local m_cubed = m_ ^ 3
+	local s_cubed = s_ ^ 3
 
 	local r_linear = 4.0767416621 * l_cubed - 3.3077115913 * m_cubed + 0.2309699292 * s_cubed
 	local g_linear = -1.2684380046 * l_cubed + 2.6097574011 * m_cubed - 0.3413193965 * s_cubed
 	local b_linear = -0.0041960863 * l_cubed - 0.7034186147 * m_cubed + 1.7076147010 * s_cubed
 
-	-- Apply gamma correction (sRGB)
-	local function gamma_correct(c)
-		if c <= 0.0031308 then
-			return 12.92 * c
-		else
-			return 1.055 * math.pow(c, 1 / 2.4) - 0.055
-		end
+	local function gamma(c)
+		return c <= 0.0031308 and 12.92 * c or 1.055 * c ^ (1 / 2.4) - 0.055
 	end
 
-	local r = gamma_correct(r_linear)
-	local g = gamma_correct(g_linear)
-	local b = gamma_correct(b_linear)
+	local r = gamma(r_linear)
+	local g = gamma(g_linear)
+	local b = gamma(b_linear)
 
-	-- Clamp and convert to 0-255
 	r = math.max(0, math.min(1, r)) * 255
 	g = math.max(0, math.min(1, g)) * 255
 	b = math.max(0, math.min(1, b)) * 255
@@ -274,38 +273,36 @@ function M.oklch_to_rgb(l, c, h)
 	return math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5)
 end
 
--- Calculate perceived brightness (for contrast) (unchanged)
+-- Perceived brightness (unchanged)
 function M.get_perceived_brightness(r, g, b)
-	-- Use relative luminance formula (Rec. 709)
 	return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 end
 
--- Determine if dark text should be used (unchanged)
 function M.should_use_dark_text(r, g, b)
 	return M.get_perceived_brightness(r, g, b) > 0.5
 end
 
--- Borrowed from other plugin: Get foreground color for contrast
-function M.get_foreground_color_from_hex_color(color)
-	local rgb_table = M.hex_to_rgb(color) -- Note: Changed to use your hex_to_rgb
+--------------------------------------------------------------------------------
+-- FIXED: get_foreground_color_from_hex_color
+-- Now works with the 4-value return of hex_to_rgb
+--------------------------------------------------------------------------------
+function M.get_foreground_color_from_hex_color(hex)
+	local r, g, b = M.hex_to_rgb(hex) -- we ignore alpha here
 
-	if rgb_table == nil or #rgb_table < 3 then
-		return nil
+	-- Convert to linear (sRGB → linear)
+	local function linear(c)
+		c = c / 255
+		return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
 	end
 
-	-- see: https://stackoverflow.com/a/3943023/16807083
-	rgb_table = vim.tbl_map(function(value)
-		value = value / 255
+	local lr = linear(r)
+	local lg = linear(g)
+	local lb = linear(b)
 
-		if value <= 0.04045 then
-			return value / 12.92
-		end
+	-- Relative luminance
+	local luminance = 0.2126 * lr + 0.7152 * lg + 0.0722 * lb
 
-		return ((value + 0.055) / 1.055) ^ 2.4
-	end, rgb_table)
-
-	local luminance = (0.2126 * rgb_table[1]) + (0.7152 * rgb_table[2]) + (0.0722 * rgb_table[3])
-
+	-- WCAG recommendation – threshold 0.179 is a bit more forgiving than 0.5
 	return luminance > 0.179 and "#000000" or "#ffffff"
 end
 
