@@ -256,7 +256,7 @@ local function rgb_to_hex(rgb_str)
 	return nil
 end
 
--- FIXED: Build a trie-like cache for faster color lookups
+-- FIXED: Build a color lookup cache for O(1) access
 local color_cache = {}
 local function build_color_cache()
 	if next(color_cache) then
@@ -267,7 +267,7 @@ local function build_color_cache()
 	end
 end
 
--- FIXED: Improved Tailwind class parsing with proper boundaries
+-- FIXED: Completely rewritten Tailwind parser
 function M.parse_tailwind(line)
 	local results = {}
 
@@ -277,40 +277,39 @@ function M.parse_tailwind(line)
 
 	build_color_cache()
 
-	-- Track found positions to avoid duplicates
+	-- Track seen positions
 	local seen = {}
 
-	-- FIXED: Simplified and more accurate pattern
-	-- Matches: optional ! + optional variants (dark:, hover:, etc) + prefix + color
+	-- FIXED: Parse each prefix separately with correct boundaries
 	for _, prefix in ipairs(PREFIXES) do
 		local idx = 1
-		while idx <= #line do
-			-- Pattern breakdown:
-			-- ([%s"'`{[,=]?) - word boundary (space, quote, bracket, etc)
-			-- (!?) - optional ! for important
-			-- ([%w%-]*:)* - optional variants like dark:, hover:, md:
-			-- (%w+%-) - prefix with dash (bg-, text-, etc)
-			-- ([%w%-]+) - color name (red-500, slate-100, etc)
-			local before, important, variants, matched_prefix, color_part, after_pos =
-				line:find("([%s\"'`{[,=]?)(!?)([%w%-]*:)*(" .. prefix .. "%-)([%w%-]+)", idx)
 
-			if not before then
+		while idx <= #line do
+			-- Build pattern: word_boundary + optional_variants + prefix + dash + color_name + word_boundary
+			-- Example matches: "text-blue-300", "dark:bg-red-500", "hover:text-slate-100"
+			local pattern = "([^%w%-]?)(!?)([%w]+:)*(" .. prefix .. "%-[%w%-]+)"
+
+			local boundary_start, match_end, before_char, important, variants, full_class = line:find(pattern, idx)
+
+			if not boundary_start then
 				break
 			end
 
-			-- Calculate actual class start (after the boundary character)
-			local class_start = before + #line:sub(before, before):match("^%s*")
-			if line:sub(before, before):match("[\"'`{[,=]") then
-				class_start = before + 1
+			-- Calculate the actual start of the class (skip boundary character)
+			local class_start = boundary_start
+			if before_char and before_char ~= "" then
+				class_start = boundary_start + 1
 			end
 
-			-- Build full class name
-			local full_class = important .. (variants or "") .. matched_prefix .. color_part
-			local class_end = class_start + #full_class - 1
+			-- Extract just the color part (e.g., "blue-300" from "text-blue-300")
+			local color_part = full_class:match(prefix .. "%-(.+)$")
 
-			-- Check if this color exists in our palette
-			if color_cache[color_part] then
-				local pos_key = class_start .. "-" .. class_end
+			if color_part and color_cache[color_part] then
+				-- Calculate actual positions
+				local actual_start = class_start - 1 -- Convert to 0-indexed
+				local actual_end = class_start + #full_class - 1
+
+				local pos_key = actual_start .. "-" .. actual_end
 
 				if not seen[pos_key] then
 					local rgb_str = M.TAILWIND_COLORS[color_part]
@@ -319,8 +318,8 @@ function M.parse_tailwind(line)
 					if hex then
 						table.insert(results, {
 							color = hex,
-							start = class_start - 1, -- Convert to 0-indexed
-							finish = class_end,
+							start = actual_start,
+							finish = actual_end,
 							format = "tailwind",
 							class_name = full_class,
 						})
@@ -330,12 +329,12 @@ function M.parse_tailwind(line)
 				end
 			end
 
-			-- Move past this match
-			idx = after_pos
+			-- Move to next potential match
+			idx = match_end + 1
 		end
 	end
 
-	-- Sort by position for consistency
+	-- Sort by position
 	table.sort(results, function(a, b)
 		return a.start < b.start
 	end)

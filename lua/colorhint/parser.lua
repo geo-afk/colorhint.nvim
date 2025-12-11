@@ -72,6 +72,35 @@ local function is_valid_context(line, start_pos, finish_pos, color_format)
 		if after:match("^%s*:") then
 			return false
 		end
+
+		-- FIXED: In JS/TS, only highlight named colors inside strings
+		if ft == "javascript" or ft == "typescript" or ft == "javascriptreact" or ft == "typescriptreact" then
+			-- Check if we're inside a string (single, double, or template literal)
+			local in_string = false
+			local quote_count_double = 0
+			local quote_count_single = 0
+			local quote_count_backtick = 0
+
+			for i = 1, start_pos do
+				local char = line:sub(i, i)
+				if char == '"' then
+					quote_count_double = quote_count_double + 1
+				elseif char == "'" then
+					quote_count_single = quote_count_single + 1
+				elseif char == "`" then
+					quote_count_backtick = quote_count_backtick + 1
+				end
+			end
+
+			-- Odd count means we're inside a string
+			in_string = (quote_count_double % 2 == 1)
+				or (quote_count_single % 2 == 1)
+				or (quote_count_backtick % 2 == 1)
+
+			if not in_string then
+				return false
+			end
+		end
 	end
 
 	-- HTML-like files
@@ -440,7 +469,7 @@ function M.parse_var_colors(line)
 	return {}
 end
 
--- IMPROVED: Unified color value converter
+-- FIXED: Unified color value converter
 function M.get_color_value(color_str, row_offset, custom_colors, enable_short_hex)
 	-- Short hex: #RGB -> #RRGGBB
 	if enable_short_hex and color_str:match("^#%x%x%x$") then
@@ -469,15 +498,16 @@ function M.get_color_value(color_str, row_offset, custom_colors, enable_short_he
 		end
 	end
 
-	-- HSL/HSLA
+	-- HSL/HSLA - FIXED: hsl_to_rgb returns multiple values, not a table
 	if color_str:match("^hsla?%s*%(") then
 		local nums = {}
 		for num in color_str:gmatch("[%d%.]+") do
 			table.insert(nums, tonumber(num))
 		end
 		if #nums >= 3 then
-			local rgb = colors.hsl_to_rgb(nums[1], nums[2], nums[3])
-			return colors.rgb_to_hex(rgb[1], rgb[2], rgb[3])
+			-- FIXED: Capture multiple return values
+			local r, g, b = colors.hsl_to_rgb(nums[1], nums[2], nums[3])
+			return colors.rgb_to_hex(r, g, b)
 		end
 	end
 
