@@ -2,7 +2,7 @@ local M = {}
 local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 
--- Comprehensive Tailwind color palette (unchanged from your version)
+-- Comprehensive Tailwind color palette
 M.TAILWIND_COLORS = {
 	["black"] = "rgb(0 0 0)",
 	["white"] = "rgb(255 255 255)",
@@ -256,18 +256,7 @@ local function rgb_to_hex(rgb_str)
 	return nil
 end
 
--- FIXED: Build a color lookup cache for O(1) access
-local color_cache = {}
-local function build_color_cache()
-	if next(color_cache) then
-		return
-	end
-	for color_name, _ in pairs(M.TAILWIND_COLORS) do
-		color_cache[color_name] = true
-	end
-end
-
--- FIXED: Completely rewritten Tailwind parser
+-- COMPLETELY REWRITTEN: Simple and reliable Tailwind parser
 function M.parse_tailwind(line)
 	local results = {}
 
@@ -275,66 +264,70 @@ function M.parse_tailwind(line)
 		return results
 	end
 
-	build_color_cache()
-
-	-- Track seen positions
+	-- Track positions we've already added
 	local seen = {}
 
-	-- FIXED: Parse each prefix separately with correct boundaries
+	-- For each prefix, find all matching classes
 	for _, prefix in ipairs(PREFIXES) do
-		local idx = 1
+		-- Start from beginning of line
+		local search_pos = 1
 
-		while idx <= #line do
-			-- Build pattern: word_boundary + optional_variants + prefix + dash + color_name + word_boundary
-			-- Example matches: "text-blue-300", "dark:bg-red-500", "hover:text-slate-100"
-			local pattern = "([^%w%-]?)(!?)([%w]+:)*(" .. prefix .. "%-[%w%-]+)"
+		while search_pos <= #line do
+			-- Look for: prefix-colorname-number pattern
+			-- Examples: bg-red-500, text-blue-300, border-slate-900
+			-- Pattern captures optional modifiers (!, dark:, hover:, etc) and full class
+			local pattern_str = "([!]?)([%w]*:)*(" .. prefix .. "%-[%a]+%-[%d]+)"
+			local match_start, match_end, important, modifiers, class_name = line:find(pattern_str, search_pos)
 
-			local boundary_start, match_end, before_char, important, variants, full_class = line:find(pattern, idx)
-
-			if not boundary_start then
+			if not match_start then
 				break
 			end
 
-			-- Calculate the actual start of the class (skip boundary character)
-			local class_start = boundary_start
-			if before_char and before_char ~= "" then
-				class_start = boundary_start + 1
-			end
+			-- Check what's before the match - must be a word boundary
+			local char_before = match_start > 1 and line:sub(match_start - 1, match_start - 1) or " "
+			local is_boundary = char_before:match("[%s\"'`={,%[]") ~= nil
 
-			-- Extract just the color part (e.g., "blue-300" from "text-blue-300")
-			local color_part = full_class:match(prefix .. "%-(.+)$")
+			if is_boundary then
+				-- Extract the color part (e.g., "red-500" from "bg-red-500")
+				local color_part = class_name:match(prefix .. "%-(.+)")
 
-			if color_part and color_cache[color_part] then
-				-- Calculate actual positions
-				local actual_start = class_start - 1 -- Convert to 0-indexed
-				local actual_end = class_start + #full_class - 1
+				-- Check if this color exists in our palette
+				if color_part and M.TAILWIND_COLORS[color_part] then
+					-- Build the full class including modifiers
+					local full_class = important .. (modifiers or "") .. class_name
 
-				local pos_key = actual_start .. "-" .. actual_end
+					-- Calculate positions (0-indexed for Neovim)
+					local start_pos = match_start - 1
+					local end_pos = match_start + #full_class - 1
 
-				if not seen[pos_key] then
-					local rgb_str = M.TAILWIND_COLORS[color_part]
-					local hex = rgb_to_hex(rgb_str)
+					-- Check for duplicates
+					local pos_key = start_pos .. ":" .. end_pos
+					if not seen[pos_key] then
+						-- Convert RGB to hex
+						local rgb_str = M.TAILWIND_COLORS[color_part]
+						local hex = rgb_to_hex(rgb_str)
 
-					if hex then
-						table.insert(results, {
-							color = hex,
-							start = actual_start,
-							finish = actual_end,
-							format = "tailwind",
-							class_name = full_class,
-						})
+						if hex then
+							table.insert(results, {
+								color = hex,
+								start = start_pos,
+								finish = end_pos,
+								format = "tailwind",
+								class_name = full_class,
+							})
 
-						seen[pos_key] = true
+							seen[pos_key] = true
+						end
 					end
 				end
 			end
 
-			-- Move to next potential match
-			idx = match_end + 1
+			-- Move past this match
+			search_pos = match_end + 1
 		end
 	end
 
-	-- Sort by position
+	-- Sort by position for consistent ordering
 	table.sort(results, function(a, b)
 		return a.start < b.start
 	end)
