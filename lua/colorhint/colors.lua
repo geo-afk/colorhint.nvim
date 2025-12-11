@@ -1,5 +1,4 @@
 local M = {}
-
 -- Named CSS colors database (unchanged)
 M.NAMED_COLORS = {
 	aliceblue = "#f0f8ff",
@@ -151,7 +150,6 @@ M.NAMED_COLORS = {
 	yellow = "#ffff00",
 	yellowgreen = "#9acd32",
 }
-
 -- ANSI colors (optional – you can extend this map)
 M.ANSI_COLORS = {
 	["0;30"] = "#000000",
@@ -171,42 +169,34 @@ M.ANSI_COLORS = {
 	["0;37"] = "#e5e5e5",
 	["1;37"] = "#ffffff",
 }
-
 -- Convert hex → r,g,b[,a] (returns four values)
 function M.hex_to_rgb(hex)
 	hex = hex:gsub("#", "")
-
 	if #hex == 3 then
 		hex = hex:gsub("(%x)", "%1%1")
 	end
-
 	local r = tonumber(hex:sub(1, 2), 16) or 0
 	local g = tonumber(hex:sub(3, 4), 16) or 0
 	local b = tonumber(hex:sub(5, 6), 16) or 0
 	local a = (#hex == 8) and (tonumber(hex:sub(7, 8), 16) or 255) or 255
-
 	return r, g, b, a
 end
-
 -- Convert RGB → hex (a is optional)
 function M.rgb_to_hex(r, g, b, a)
 	r = math.max(0, math.min(255, math.floor(r + 0.5)))
 	g = math.max(0, math.min(255, math.floor(g + 0.5)))
 	b = math.max(0, math.min(255, math.floor(b + 0.5)))
-
 	if a and a < 255 then
 		a = math.max(0, math.min(255, math.floor(a + 0.5)))
 		return string.format("#%02x%02x%02x%02x", r, g, b, a)
 	end
 	return string.format("#%02x%02x%02x", r, g, b)
 end
-
 -- HSL → RGB (unchanged)
 function M.hsl_to_rgb(h, s, l)
 	h = h / 360
 	s = s / 100
 	l = l / 100
-
 	local function hue_to_rgb(p, q, t)
 		if t < 0 then
 			t = t + 1
@@ -225,7 +215,6 @@ function M.hsl_to_rgb(h, s, l)
 		end
 		return p
 	end
-
 	local r, g, b
 	if s == 0 then
 		r, g, b = l, l, l
@@ -236,74 +225,56 @@ function M.hsl_to_rgb(h, s, l)
 		g = hue_to_rgb(p, q, h)
 		b = hue_to_rgb(p, q, h - 1 / 3)
 	end
-
 	return math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)
 end
-
 -- OKLCH → RGB (unchanged)
 function M.oklch_to_rgb(l, c, h)
 	local h_rad = math.rad(h)
 	local a = c * math.cos(h_rad)
 	local b = c * math.sin(h_rad)
-
 	local l_ = l + 0.3963377774 * a + 0.2158037573 * b
 	local m_ = l - 0.1055613458 * a - 0.0638541728 * b
 	local s_ = l - 0.0894841775 * a - 1.2914855480 * b
-
 	local l_cubed = l_ ^ 3
 	local m_cubed = m_ ^ 3
 	local s_cubed = s_ ^ 3
-
 	local r_linear = 4.0767416621 * l_cubed - 3.3077115913 * m_cubed + 0.2309699292 * s_cubed
 	local g_linear = -1.2684380046 * l_cubed + 2.6097574011 * m_cubed - 0.3413193965 * s_cubed
 	local b_linear = -0.0041960863 * l_cubed - 0.7034186147 * m_cubed + 1.7076147010 * s_cubed
-
 	local function gamma(c)
 		return c <= 0.0031308 and 12.92 * c or 1.055 * c ^ (1 / 2.4) - 0.055
 	end
-
 	local r = gamma(r_linear)
 	local g = gamma(g_linear)
 	local b = gamma(b_linear)
-
 	r = math.max(0, math.min(1, r)) * 255
 	g = math.max(0, math.min(1, g)) * 255
 	b = math.max(0, math.min(1, b)) * 255
-
 	return math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5)
 end
-
 -- Perceived brightness (unchanged)
 function M.get_perceived_brightness(r, g, b)
 	return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 end
-
 function M.should_use_dark_text(r, g, b)
 	return M.get_perceived_brightness(r, g, b) > 0.5
 end
 
---------------------------------------------------------------------------------
 -- FIXED: get_foreground_color_from_hex_color
 -- Now works with the 4-value return of hex_to_rgb
---------------------------------------------------------------------------------
 function M.get_foreground_color_from_hex_color(hex)
 	local r, g, b = M.hex_to_rgb(hex) -- we ignore alpha here
-
 	-- Convert to linear (sRGB → linear)
 	local function linear(c)
 		c = c / 255
 		return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
 	end
-
 	local lr = linear(r)
 	local lg = linear(g)
 	local lb = linear(b)
-
 	-- Relative luminance
 	local luminance = 0.2126 * lr + 0.7152 * lg + 0.0722 * lb
-
 	-- WCAG recommendation – threshold 0.179 is a bit more forgiving than 0.5
 	return luminance > 0.179 and "#000000" or "#ffffff"
 end
-
 return M

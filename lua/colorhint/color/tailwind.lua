@@ -2,7 +2,7 @@ local M = {}
 local config = require("colorhint.config")
 local colors = require("colorhint.colors")
 
--- Comprehensive Tailwind color palette
+-- Comprehensive Tailwind color palette (unchanged from your version)
 M.TAILWIND_COLORS = {
 	["black"] = "rgb(0 0 0)",
 	["white"] = "rgb(255 255 255)",
@@ -246,17 +246,60 @@ local PREFIXES = {
 	"placeholder",
 }
 
--- Convert rgb string to hex
-local function rgb_to_hex(rgb_str)
-	local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
-	if r then
+-- Local function to parse arbitrary color strings
+local function get_hex_from_string(str)
+	str = str:gsub("%s+", "") -- Remove spaces for easier matching
+	-- Hex
+	if str:match("^#%x+$") then
+		if #str == 4 then -- #RGB
+			local _, r, g, b = str:match("(#)(%x)(%x)(%x)")
+			return "#" .. r .. r .. g .. g .. b .. b
+		elseif #str == 7 or #str == 9 then
+			return str
+		end
+	-- RGB/RGBA
+	elseif str:match("^rgb") then
+		local r, g, b, a = str:match("rgb%a?%((%d+)[,/]?(.-)[,/]?(.-)[,/]?([%d%.]*)%)")
 		r, g, b = tonumber(r), tonumber(g), tonumber(b)
-		return colors.rgb_to_hex(r, g, b)
+		a = (a ~= "" and tonumber(a)) or 1
+		if a <= 1 then
+			a = a * 255
+		end
+		a = math.floor(a + 0.5)
+		return colors.rgb_to_hex(r, g, b, a)
+	-- HSL/HSLA
+	elseif str:match("^hsl") then
+		local h, s, l, a = str:match("hsl%a?%(([%d%.]+)[,/]?(.-)[,/]?(.-)[,/]?([%d%.]*)%)")
+		h, s, l = tonumber(h), tonumber(s:gsub("%%", "")), tonumber(l:gsub("%%", ""))
+		a = (a ~= "" and tonumber(a)) or 1
+		if a <= 1 then
+			a = a * 255
+		end
+		a = math.floor(a + 0.5)
+		local r, g, b = colors.hsl_to_rgb(h, s, l)
+		return colors.rgb_to_hex(r, g, b, a)
+	-- Named
+	else
+		str = str:lower()
+		if colors.NAMED_COLORS[str] then
+			return colors.NAMED_COLORS[str]
+		end
 	end
 	return nil
 end
 
--- COMPLETELY REWRITTEN: Simple and reliable Tailwind parser
+-- FIXED: Build a color lookup cache for O(1) access
+local color_cache = {}
+local function build_color_cache()
+	if next(color_cache) then
+		return
+	end
+	for color_name, _ in pairs(M.TAILWIND_COLORS) do
+		color_cache[color_name] = true
+	end
+end
+
+-- REWRITTEN: Improved Tailwind parser with support for variants, important, opacity, and arbitrary colors
 function M.parse_tailwind(line)
 	local results = {}
 
@@ -264,70 +307,92 @@ function M.parse_tailwind(line)
 		return results
 	end
 
-	-- Track positions we've already added
+	build_color_cache()
+
+	-- Track seen positions to avoid duplicates
 	local seen = {}
 
-	-- For each prefix, find all matching classes
+	-- Parse each prefix separately
 	for _, prefix in ipairs(PREFIXES) do
-		-- Start from beginning of line
-		local search_pos = 1
+		local idx = 1
 
-		while search_pos <= #line do
-			-- Look for: prefix-colorname-number pattern
-			-- Examples: bg-red-500, text-blue-300, border-slate-900
-			-- Pattern captures optional modifiers (!, dark:, hover:, etc) and full class
-			local pattern_str = "([!]?)([%w]*:)*(" .. prefix .. "%-[%a]+%-[%d]+)"
-			local match_start, match_end, important, modifiers, class_name = line:find(pattern_str, search_pos)
+		while idx <= #line do
+			-- Improved pattern: supports variants with -, opacity /nn or /n.n, arbitrary [values]
+			local pattern = "([^%w%-]?)(!?)([%w%-]+:)*(" .. prefix .. "%-[%w%-]+(?:/[%d%.]+)?|" .. prefix .. "%-%[.-%])"
+			local boundary_start, match_end, before_char, important, variants, full_class = line:find(pattern, idx)
 
-			if not match_start then
+			if not boundary_start then
 				break
 			end
 
-			-- Check what's before the match - must be a word boundary
-			local char_before = match_start > 1 and line:sub(match_start - 1, match_start - 1) or " "
-			local is_boundary = char_before:match("[%s\"'`={,%[]") ~= nil
+			-- Calculate the length of before_char
+			local before_len = #before_char
 
-			if is_boundary then
-				-- Extract the color part (e.g., "red-500" from "bg-red-500")
-				local color_part = class_name:match(prefix .. "%-(.+)")
+			-- Class start (1-based): after before_char
+			local class_start = boundary_start + before_len
 
-				-- Check if this color exists in our palette
-				if color_part and M.TAILWIND_COLORS[color_part] then
-					-- Build the full class including modifiers
-					local full_class = important .. (modifiers or "") .. class_name
+			-- Positions: 0-based start, exclusive end_col for extmark
+			local actual_start = class_start - 1
+			local actual_end = match_end -- Since find end is inclusive, but extmark end_col exclusive: match_end works
 
-					-- Calculate positions (0-indexed for Neovim)
-					local start_pos = match_start - 1
-					local end_pos = match_start + #full_class - 1
+			local pos_key = actual_start .. "-" .. actual_end
 
-					-- Check for duplicates
-					local pos_key = start_pos .. ":" .. end_pos
-					if not seen[pos_key] then
-						-- Convert RGB to hex
-						local rgb_str = M.TAILWIND_COLORS[color_part]
-						local hex = rgb_to_hex(rgb_str)
+			if not seen[pos_key] then
+				-- Extract color_part after prefix-
+				local color_part = full_class:match(prefix .. "%-(.+)$")
 
-						if hex then
-							table.insert(results, {
-								color = hex,
-								start = start_pos,
-								finish = end_pos,
-								format = "tailwind",
-								class_name = full_class,
-							})
-
-							seen[pos_key] = true
+				if color_part then
+					-- Handle opacity and base
+					local base_part = color_part
+					local opacity = 1
+					if color_part:match("/[%d%.]+$") then
+						base_part, op_str = color_part:match("^(.-)/([%d%.]+)$")
+						opacity = tonumber(op_str)
+						if opacity > 1 then
+							opacity = opacity / 100
 						end
+					end
+
+					local hex
+					if color_cache[base_part] then
+						-- Standard Tailwind color
+						local rgb_str = M.TAILWIND_COLORS[base_part]
+						local r, g, b = rgb_str:match("rgb%(%s*(%d+)%s+(%d+)%s+(%d+)")
+						r, g, b = tonumber(r), tonumber(g), tonumber(b)
+						local a = math.floor(opacity * 255 + 0.5)
+						hex = colors.rgb_to_hex(r, g, b, a)
+					elseif base_part:match("^%[.+%]$") then
+						-- Arbitrary color
+						local inner = base_part:match("^%[(.+)%]$")
+						if inner then
+							local arb_hex = get_hex_from_string(inner)
+							if arb_hex then
+								local r, g, b, a = colors.hex_to_rgb(arb_hex)
+								a = math.floor((a / 255 * opacity) * 255 + 0.5)
+								hex = colors.rgb_to_hex(r, g, b, a)
+							end
+						end
+					end
+
+					if hex then
+						table.insert(results, {
+							color = hex,
+							start = actual_start,
+							finish = actual_end,
+							format = "tailwind",
+							class_name = full_class,
+						})
+						seen[pos_key] = true
 					end
 				end
 			end
 
-			-- Move past this match
-			search_pos = match_end + 1
+			-- Move to next potential match
+			idx = match_end + 1
 		end
 	end
 
-	-- Sort by position for consistent ordering
+	-- Sort by position
 	table.sort(results, function(a, b)
 		return a.start < b.start
 	end)
